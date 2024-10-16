@@ -143,6 +143,12 @@ abbreviation setProofVerifierState :: "Contracts \<Rightarrow> address \<Rightar
   "setProofVerifierState contracts address state \<equiv> 
       contracts \<lparr> IProofVerifier := Mapping.update address state (IProofVerifier contracts) \<rparr>"
 
+abbreviation getLastStateTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
+  "getLastStateTD contracts tokenDepositAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (TokenDepositState.stateOracle (the (tokenDepositState contracts tokenDepositAddress)))))"
+
+abbreviation getLastStateB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
+  "getLastStateB contracts bridgeAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (BridgeState.stateOracle (the (bridgeState contracts bridgeAddress)))))"
+
 section \<open>IERC20\<close>
  
 definition ERC20Constructor :: ERC20State where 
@@ -317,7 +323,7 @@ definition lastValidState :: "Contracts \<Rightarrow> TokenDepositState \<Righta
     (if deadState state \<noteq> 0 then
         (Success, deadState state)
      else
-        callLastState contracts (TokenDepositState.stateOracle state))"
+         callLastState contracts (TokenDepositState.stateOracle state))"
 
 definition callOriginalToMinted :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> Status \<times> address" where
   "callOriginalToMinted contracts address token = 
@@ -522,11 +528,11 @@ definition cancelDepositWhileDead where
                 in if status \<noteq> Success then
                       (status, state, contracts)
                    else 
-                     let status = callVerifyClaimProof contracts (TokenDepositState.proofVerifier state) (TokenDepositState.bridge state) ID stateRoot proof
+                     let status = callVerifyClaimProof contracts (TokenDepositState.proofVerifier state') (TokenDepositState.bridge state') ID stateRoot proof
                       in if status \<noteq> Success then
                             (status, state, contracts)
                          else 
-                            let state'' = deleteDeposit state ID;
+                            let state'' = deleteDeposit state' ID;
                                 \<comment> \<open>FIXME: the original uses safeTransfer\<close>
                                 (status, contracts') = callSafeTransferFrom contracts token this (sender msg) amount 
                              in if status \<noteq> Success then
@@ -891,7 +897,7 @@ section \<open>TokenDeposit\<close>
 subsection \<open>getDeadStatus\<close>
 lemma getDeadStatusDeposits [simp]:
   assumes "getDeadStatus contracts state block = (status, dead, state')"
-  shows "deposits state' = deposits state"
+  shows "TokenDepositState.deposits state' = TokenDepositState.deposits state"
   using assms
   unfolding getDeadStatus_def Let_def
   by (auto split: if_split_asm prod.splits)
@@ -909,6 +915,57 @@ lemma getDeadStatusStateOracle [simp]:
   using assms
   unfolding getDeadStatus_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma getDeadStatusBridge [simp]:
+  assumes "getDeadStatus contracts state block = (status, ret, state')"
+  shows "TokenDepositState.bridge state' = TokenDepositState.bridge state"
+  using assms
+  unfolding getDeadStatus_def
+  by (auto split: if_split_asm prod.splits)
+
+lemma getDeadStatusProofVerifier [simp]:
+  assumes "getDeadStatus contracts state block = (status, ret, state')"
+  shows "TokenDepositState.proofVerifier state' = TokenDepositState.proofVerifier state"
+  using assms
+  unfolding getDeadStatus_def
+  by (auto split: if_split_asm prod.splits)
+
+lemma getDeadStatusLastValidState [simp]:
+  assumes "getDeadStatus contracts state block = (Success, ret, state')"
+  shows "lastValidState contracts state' = lastValidState contracts state"
+  using assms
+  unfolding getDeadStatus_def lastValidState_def
+  by (auto split: if_split_asm prod.splits)
+
+lemma getDeadStatusFalse:
+  assumes "getDeadStatus contracts state block = (Success, False, state')"
+  shows "deadState state = 0"
+  using assms
+  unfolding getDeadStatus_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma getDeadStatusFalse':
+  assumes "getDeadStatus contracts state block = (Success, False, state')"
+  shows "deadState state' = 0"
+  using assms
+  unfolding getDeadStatus_def
+  by (auto split: if_split_asm option.splits prod.splits)
+
+lemma getDeadStatusSetsDeadState:
+  assumes "getDeadStatus contracts state block = (Success, True, state')"
+  assumes "deadState state = 0"
+  shows "deadState state' = lastState (the (stateOracleState contracts (TokenDepositState.stateOracle state)))"
+  using assms
+  unfolding getDeadStatus_def callLastState_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
+lemma deadStatusTrueDeadState [simp]:
+  assumes "getDeadStatus contracts state block = (Success, True, state')"
+  assumes "lastState (the (stateOracleState contracts (TokenDepositState.stateOracle state))) \<noteq> 0"
+  shows "deadState state' \<noteq> 0"
+  using assms
+  unfolding getDeadStatus_def callLastState_def
+  by (auto split: if_split_asm option.splits prod.splits)
 
 subsection \<open>deposit\<close>
 
@@ -1100,7 +1157,7 @@ lemma callDepositOtherAddress [simp]:
   unfolding callDeposit_def deposit_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
-lemma callDepositDepositStateOracle [simp]:
+lemma callDepositStateOracle [simp]:
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
   shows "TokenDepositState.stateOracle (the (tokenDepositState contracts' address)) =
          TokenDepositState.stateOracle (the (tokenDepositState contracts address))"
@@ -1116,6 +1173,14 @@ lemma callDepositTokenPairs [simp]:
   unfolding callDeposit_def deposit_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callDepositBridge [simp]:
+  assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
+  shows "TokenDepositState.bridge (the (tokenDepositState contracts address)) = 
+         TokenDepositState.bridge (the (tokenDepositState contracts' address))"
+  using assms
+  unfolding callDeposit_def deposit_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
 lemma callDepositERC20state:
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
   shows "ERC20state contracts token \<noteq> None" and "ERC20state contracts' token \<noteq> None"
@@ -1130,6 +1195,28 @@ lemma callDepositOtherToken [simp]:
   using assms
   unfolding callDeposit_def deposit_def
   by (auto simp add: Let_def  split: option.splits prod.splits if_split_asm)
+
+lemma callDepositFailsInDeadState:
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  shows "fst (callDeposit contracts tokenDepositAddress block msg ID token amount) \<noteq> Success"
+  using assms getDeadStatusFalse
+  unfolding callDeposit_def deposit_def
+  by (auto split: option.splits prod.splits)
+
+lemma callDepositInDeadState:
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
+         deadState (the (tokenDepositState contracts tokenDepositAddress))"
+  using assms
+  by (cases "address = tokenDepositAddress", metis callDepositFailsInDeadState fstI, metis callDepositOtherAddress)
+
+lemma callDepositDeadStateRemainsSet:
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  using callDepositInDeadState[OF assms] assms
+  by simp
 
 text \<open>Sufficient conditions for a deposit to be made\<close>
 lemma callDepositI:
@@ -1271,6 +1358,14 @@ lemma callUpdateIProofVerifier [simp]:
   unfolding callUpdate_def update_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callUpdateDeadState [simp]:
+  assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
+         deadState (the (tokenDepositState contracts tokenDepositAddress))"
+  using assms
+  unfolding callUpdate_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
 lemma callUpdateOtherAddress:
   assumes "address' \<noteq> address"
   assumes "callUpdate contracts address' block blockNum stateRoot = (Success, contracts')"
@@ -1278,6 +1373,8 @@ lemma callUpdateOtherAddress:
   using assms
   unfolding callUpdate_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+
 
 section \<open>ProofVerifier\<close>
 
@@ -1432,6 +1529,14 @@ lemma callClaimProofVerifier [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
   shows "BridgeState.proofVerifier (the (bridgeState contracts' address)) =
          BridgeState.proofVerifier (the (bridgeState contracts address))"
+  using assms
+  unfolding callClaim_def claim_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callClaimDeadState [simp]:
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
+         deadState (the (tokenDepositState contracts tokenDepositAddress))"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -1971,6 +2076,37 @@ next
   qed
 qed
 
+text \<open>Once written claim entry cannot be unset\<close>
+lemma reachableFromGetClaim:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "getClaim (the (bridgeState contracts address)) ID = True"
+  shows "getClaim (the (bridgeState contracts' address)) ID = True"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step callClaimPreservesTrueClaim callClaimOtherAddress
+      by (metis executeStep.simps(2))
+  next
+    case (UPDATE address' stateRoot')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
+  next
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
+  qed
+qed
+
 
 text \<open>Conditions that are necessary for bridge functioning (address memorized in contracts should be
       synchronized and all constructors must have been called)\<close>
@@ -1982,6 +2118,7 @@ definition properSetup :: "Contracts \<Rightarrow> address \<Rightarrow> address
       in stateTokenDeposit \<noteq> None \<and>
          stateBridge \<noteq> None \<and>
          BridgeState.deposit (the stateBridge) = tokenDepositAddress \<and>
+         TokenDepositState.bridge (the stateTokenDeposit) = bridgeAddress \<and>
          TokenDepositState.stateOracle (the stateTokenDeposit) =
          BridgeState.stateOracle (the stateBridge) \<and>
          TokenDepositState.tokenPairs (the stateTokenDeposit) =
@@ -1993,18 +2130,32 @@ definition properSetup :: "Contracts \<Rightarrow> address \<Rightarrow> address
          getMinted (the stateTokenPairs) token \<noteq> 0 \<and>
          ERC20state contracts (getMinted (the stateTokenPairs) token) \<noteq> None)"
 
+
+lemma properSetup_stateOracleAddress:
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
+  shows "TokenDepositState.stateOracle (the (tokenDepositState contracts tokenDepositAddress)) = 
+         BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))"
+  using assms
+  unfolding properSetup_def
+  by (simp add: Let_def)
+
+lemma properSetup_getLastState:
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
+  shows "getLastStateB contracts bridgeAddress = getLastStateTD contracts tokenDepositAddress"
+  using assms
+  by (simp add: properSetup_stateOracleAddress)
+
 lemma properSetupInit:
   shows "properSetup (init L1ChainId) TOKEN_DEPOSIT_ADDRESS BRIDGE_ADDRESS TOKEN_ADDRESS"
   unfolding properSetup_def init_def Let_def lookupNat_def
   by (auto simp add: lookup_default_update setTokenDepositAddress_def BridgeStateConstructor_def TokenDepositConstructor_def TokenPairsConstructor_def addTokenPair_def split: prod.splits)
-
 
 lemma callDepositProperSetup [simp]:
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
   assumes "properSetup contracts tokenDepositAddress bridgeAddress tokenAddress"
   shows  "properSetup contracts' tokenDepositAddress bridgeAddress tokenAddress"
   using assms
-  by (smt (verit, best) callDepositDepositStateOracle callDepositE callDepositERC20state(2) callDepositIBridge callDepositIProofVerifier callDepositIStateOracle callDepositITokenPairs callDepositOtherAddress callDepositOtherToken callDepositTokenPairs properSetup_def)
+  by (smt (verit, best) callDepositBridge callDepositStateOracle callDepositE callDepositERC20state(2) callDepositIBridge callDepositIProofVerifier callDepositIStateOracle callDepositITokenPairs callDepositOtherAddress callDepositOtherToken callDepositTokenPairs properSetup_def)
 
 lemma callClaimProperSetup [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -2362,14 +2513,11 @@ proof (induction contracts contracts' steps rule: reachableFrom.induct)
     qed
 qed
 
-abbreviation getLastState where
-  "getLastState contracts bridgeAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (BridgeState.stateOracle (the (bridgeState contracts bridgeAddress)))))"
-
 lemma callClaimGetDeposit:
   assumes "reachableFrom initContracts contracts steps"
   assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
-  assumes "getLastState initContracts bridgeAddress = 0"
-  assumes "getLastState contracts bridgeAddress \<noteq> 0"
+  assumes "getLastStateB initContracts bridgeAddress = 0"
+  assumes "getLastStateB contracts bridgeAddress \<noteq> 0"
   assumes claim: "callClaim contracts bridgeAddress msg ID token amount proof = (Success, contracts')"
   assumes "hash (sender msg) token amount \<noteq> 0"
   shows "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = hash (sender msg) token amount"
@@ -2465,7 +2613,7 @@ lemma lastStateNonZero:
   assumes "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress)) 
             in UPDATE stateOracleAddress stateRoot \<in> set steps"
   assumes "updatesNonZero steps"
-  shows "getLastState contracts bridgeAddress \<noteq> 0"
+  shows "getLastStateB contracts bridgeAddress \<noteq> 0"
   using assms
 proof (induction initContracts contracts steps)
   case (reachableFrom_base contracts)
@@ -2482,10 +2630,10 @@ next
       by (auto simp add: Let_def)
   next
     case False
-    then have *: "getLastState contracts' bridgeAddress \<noteq> 0"
+    then have *: "getLastStateB contracts' bridgeAddress \<noteq> 0"
       using reachableFrom_step updatesNonZero
        by auto
-    show "getLastState contracts'' bridgeAddress \<noteq> 0"
+    show "getLastStateB contracts'' bridgeAddress \<noteq> 0"
     proof (cases step)
       case (DEPOSIT address' caller' ID' token' amount')
       then show ?thesis
@@ -2512,7 +2660,7 @@ lemma depositBeforeClaim:
   assumes "reachableFrom initContracts contracts steps"
   assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
   assumes "getDeposit (the (tokenDepositState initContracts tokenDepositAddress)) ID = 0"
-  assumes "getLastState initContracts bridgeAddress = 0"
+  assumes "getLastStateB initContracts bridgeAddress = 0"
   assumes "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
             in UPDATE stateOracleAddress stateRoot \<in> set steps"
   assumes "updatesNonZero steps"
@@ -2537,7 +2685,7 @@ qed
 lemma onlyDepositorCanClaim:
   assumes "reachableFrom initContracts contracts steps"
   assumes "properSetup initContracts tokenDepositAddress bridgeAddress token'"
-  assumes "getLastState initContracts bridgeAddress = 0"
+  assumes "getLastStateB initContracts bridgeAddress = 0"
 
   assumes "val msg = amount"
   assumes "hash (sender msg') token' amount' \<noteq> 0"
@@ -2545,7 +2693,7 @@ lemma onlyDepositorCanClaim:
                       hash caller token amount = hash caller' token' amount' \<Longrightarrow> 
                       token = token' \<and> caller = caller' \<and> amount = amount'"
 
-  assumes "getLastState contracts' bridgeAddress \<noteq> 0"
+  assumes "getLastStateB contracts' bridgeAddress \<noteq> 0"
 
   assumes deposit: "callDeposit contracts tokenDepositAddress block msg ID token amount = (Success, contracts')"
   assumes claim: "callClaim contracts' bridgeAddress msg' ID token' amount' proof = (Success, contracts'')"
@@ -2573,49 +2721,385 @@ proof-
     by blast+    
 qed
 
+(* ----------------------------------------------------------------------------- *)
 
-lemma getDeadStatusTrueDeadStateNonZero':
-  assumes "reachableFrom contracts contracts' steps"
+lemma getDeadStatusDeadState:
   assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0"
-  assumes "getLastState contracts bridgeAddress \<noteq> 0"
-  assumes "updatesNonZero steps"
-  assumes "getDeadStatus contracts' (the (tokenDepositState contracts' tokenDepositAddress))  block = 
-           (Success, True, state')"
-  shows "deadState state' > 0"
+  assumes "getLastStateB contracts bridgeAddress \<noteq> 0"
+  assumes "getDeadStatus contracts (the (tokenDepositState contracts tokenDepositAddress))  block = 
+           (Success, True, state)"
+  shows "deadState state > 0"
 proof-
-  have "getLastState contracts' bridgeAddress \<noteq> 0"
-    using assms
-    by (metis reachableFromBridgeStateOracle reachableFromStateRootNonZero)
-  moreover
-  have "properSetup contracts' tokenDepositAddress bridgeAddress token"
-    using assms
-    using properSetupReachable by blast
-  then have "TokenDepositState.stateOracle (the (tokenDepositState contracts' tokenDepositAddress)) = 
-        BridgeState.stateOracle (the (bridgeState contracts' bridgeAddress))"
+  have "TokenDepositState.stateOracle (the (tokenDepositState contracts tokenDepositAddress)) = 
+        BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))"
+    using \<open>properSetup contracts tokenDepositAddress bridgeAddress token\<close>
     unfolding properSetup_def
     by (simp add: Let_def)
-  ultimately
-  show ?thesis
-    using \<open>getDeadStatus contracts' (the (tokenDepositState contracts' tokenDepositAddress))  block = (Success, True, state')\<close>
-    using callLastState
-    unfolding getDeadStatus_def
-    by (auto split: prod.splits if_split_asm simp del: callLastState)
+  then show ?thesis
+    using \<open>getDeadStatus contracts (the (tokenDepositState contracts tokenDepositAddress))  block = (Success, True, state)\<close>
+    using \<open>getLastStateB contracts bridgeAddress \<noteq> 0\<close>
+    by (metis assms(2) assms(3) deadStatusTrueDeadState neq0_conv)
 qed
 
-lemma getDeadStatusTrue:
-  assumes "reachableFrom initContracts contracts steps" 
+lemma getDeadStatusDeadStateOneUpdate:
   assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
+  assumes "reachableFrom initContracts contracts steps"
+  \<comment> \<open>at least one update happend\<close>
   assumes "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
             in UPDATE stateOracleAddress stateRoot \<in> set steps"
+  \<comment> \<open>updates never set zero state\<close>
   assumes "updatesNonZero steps"
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0"
-  assumes "reachableFrom contracts contracts' steps'"
-  assumes "updatesNonZero steps'"
-  assumes "getDeadStatus contracts' (the (tokenDepositState contracts' tokenDepositAddress)) block = 
-           (Success, True, state')"
-  shows "deadState state' > 0"
-  using assms getDeadStatusTrueDeadStateNonZero' properSetupReachable lastStateNonZero
+  \<comment> \<open>the bridge became dead\<close>
+  assumes "getDeadStatus contracts (the (tokenDepositState contracts tokenDepositAddress)) block = 
+           (Success, True, state)"
+  \<comment> \<open>deadState is set\<close>
+  shows "deadState state > 0"
+  using assms
+  using getDeadStatusDeadState lastStateNonZero properSetupReachable
   by blast
+
+lemma deadStateGetDeadStatus:
+  assumes "deadState state > 0"
+  shows "getDeadStatus contracts state block = (Success, True, state)"
+  using assms
+  unfolding getDeadStatus_def
+  by simp
+
+text \<open>Dead state is never unset\<close>
+lemma deadStateRemains:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then have *: "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+    using updatesNonZero
+    by simp
+  then show ?case
+    using reachableFrom_step.hyps(2)
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis
+      using reachableFrom_step *
+      by (metis callDepositInDeadState executeStep.simps(1))
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using * reachableFrom_step
+      by simp
+  next
+    case (UPDATE address' stateRoot')
+    then show ?thesis
+      using reachableFrom_step *
+      by simp
+  qed
+qed
+
+text \<open>No deposit after the bridge dies\<close>
+lemma  noDepositBridgeDead:
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "reachableFrom contracts contracts' steps"
+  shows "fst (callDeposit contracts' tokenDepositAddress block msg ID token amount) \<noteq> Success"
+  using assms deadStateRemains callDepositFailsInDeadState
+  by blast
+
+text \<open>Cancel only when the bridge is dead\<close>
+lemma cancelDepositBridgeIsDead:
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
+  assumes "getLastStateB contracts bridgeAddress \<noteq> 0"
+  assumes "callCancelDepositWhileDead contracts tokenDepositAddress msg block ID token amount proof = (Success, contracts')"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  using assms getDeadStatusDeadState[OF assms(1-2)]
+  unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma cancelDepositOnlyAfterDeposit:
+  assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
+  assumes "getDeposit (the (tokenDepositState initContracts tokenDepositAddress)) ID = 0"
+  assumes "reachableFrom initContracts contracts steps"
+  assumes cancel: "callCancelDepositWhileDead contracts tokenDepositAddress msg block ID token amount proof = (Success, contracts')"
+  (* EXPLOIT? *)
+  assumes "hash (sender msg) token amount \<noteq> 0"
+  assumes hash_inj: "\<And> caller caller' amount amount' token token'. 
+                      hash caller token amount = hash caller' token' amount' \<Longrightarrow> 
+                      token = token' \<and> caller = caller' \<and> amount = amount'"
+  shows "DEPOSIT tokenDepositAddress (sender msg) ID token amount \<in> set steps"
+proof-
+  have "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = hash (sender msg) token amount"
+    using cancel
+    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
+    by (simp add: Let_def split: option.splits prod.splits if_split_asm)
+  then show ?thesis
+    using assms hashWrittenOnlyByDeposit
+    by blast
+qed
+
+
+(* ----------------------------------------------------------------- *)
+
+lemma callDepositSetsDeadState:
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
+  assumes "callLastState contracts (BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))) =
+          (Success, stateRoot)"
+  assumes "callDeposit contracts tokenDepositAddress block msg ID token' amount = (Success, contracts')"
+  assumes "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = stateRoot"
+proof-
+  have "getLastStateTD contracts tokenDepositAddress = stateRoot"
+    using assms
+    by (metis callLastState properSetup_stateOracleAddress)
+  then show ?thesis
+    using \<open>callDeposit contracts tokenDepositAddress block msg ID token' amount = (Success, contracts')\<close>
+    using \<open>deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0\<close>
+    using getDeadStatusFalse'
+    unfolding callDeposit_def deposit_def
+    by (auto split: option.splits prod.splits if_split_asm)
+qed
+
+lemma deadStateLastState:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress token"
+  assumes noUpdate: "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))
+            in \<nexists> stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps"
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0"
+  assumes "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  assumes "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))
+            in callLastState contracts stateOracleAddress = (Success, stateRoot)"
+  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = stateRoot"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by blast
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0")
+    case True
+    then show ?thesis
+      using reachableFrom_step
+      apply (cases step)
+        apply (metis callDepositInDeadState executeStep.simps(1) list.set_intros(2))
+       apply simp
+      apply (metis callUpdateDeadState executeStep.simps(3) list.set_intros(2))
+      done
+  next
+    case False
+    show ?thesis
+    proof (cases step)
+      case (DEPOSIT address' caller' ID' token' amount')
+      show ?thesis
+      proof (cases "address' = tokenDepositAddress")
+        case False
+        then show ?thesis
+          using reachableFrom_step
+          by (metis DEPOSIT callDepositOtherAddress executeStep.simps(1) list.set_intros(2))
+      next
+        case True
+        show ?thesis
+        proof (rule callDepositSetsDeadState)
+          show "properSetup contracts' tokenDepositAddress bridgeAddress token"
+            using reachableFrom_step.prems reachableFrom_step.hyps
+            using properSetupReachable by blast
+        next
+          show "callLastState contracts' (BridgeState.stateOracle (the (bridgeState contracts' bridgeAddress))) =
+               (Success, stateRoot)"
+            using reachableFrom_step.prems reachableFrom_step.hyps
+            by (smt (verit, ccfv_threshold) noUpdateLastState callLastState callLastStateI list.set_intros(2) prod.exhaust_sel properSetupReachable properSetup_def reachableFromBridgeStateOracle)
+        next
+          show "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) \<noteq> 0"
+            by fact
+        next
+          show "callDeposit contracts' tokenDepositAddress block (message caller' amount') ID' token' amount' =
+                (Success, contracts'')"
+            using reachableFrom_step DEPOSIT \<open>address' = tokenDepositAddress\<close>
+            by simp
+        qed
+      qed
+    next
+      case (CLAIM address' caller' ID' token' amount' proof')
+      then show ?thesis
+        using reachableFrom_step
+        by simp
+    next
+      case (UPDATE address' stateRoot')
+      then show ?thesis
+        using reachableFrom_step
+        by (metis False callUpdateDeadState executeStep.simps(3))
+    qed
+  qed
+qed
+
+text \<open>If cancel deposit succeeds, then the bridge is dead and there was no claim previous to the state
+in which the bridge died\<close>
+lemma cancelDepositNoClaim:
+  assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
+  assumes "reachableFrom initContracts contracts steps"
+  \<comment> \<open>The last update that happened when the bridge was still alive\<close>
+  assumes update:
+          "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
+            in callUpdate contracts stateOracleAddress block blockNum stateRoot = (Success, contracts')"
+  assumes "stateRoot \<noteq> 0" (* Additional ssumption *)
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0"
+
+  \<comment> \<open>There were no updates since then\<close>
+  assumes "reachableFrom contracts' contracts'' steps'"
+  assumes noUpdate: "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
+            in \<nexists> stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps'"
+
+  \<comment> \<open>Cancel deposit succeded\<close>
+  assumes cancel:
+          "callCancelDepositWhileDead contracts'' tokenDepositAddress msg block' ID token amount proof = (Success, contracts''')"
+
+  \<comment> \<open>Claim did not happen before that last update\<close>
+  shows "\<nexists> proof. CLAIM bridgeAddress (sender msg) ID token amount proof \<in> set steps"
+proof (rule ccontr)
+  assume "\<not> ?thesis"
+  then obtain p where *: "CLAIM bridgeAddress (sender msg) ID token amount p \<in> set steps"
+    by auto
+  have "getClaim (the (bridgeState contracts bridgeAddress)) ID = True"
+    using \<open>reachableFrom initContracts contracts steps\<close> *
+  proof (induction initContracts contracts steps rule: reachableFrom.induct)
+    case (reachableFrom_base contracts)
+    then show ?case
+      by simp
+  next
+    case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+    show ?case
+    proof (cases "step = CLAIM bridgeAddress (sender msg) ID token amount p")
+      case True
+      then show ?thesis
+        using reachableFrom_step.hyps callClaimWritesClaim
+        by simp
+    next
+      case False
+      then show ?thesis
+        using reachableFrom_step
+        by (cases step,
+            simp,
+            metis callClaimOtherAddress callClaimPreservesTrueClaim executeStep.simps(2) set_ConsD,
+            simp)
+    qed
+  qed
+
+  moreover
+
+  define stateBridge where "stateBridge = the (bridgeState contracts'' bridgeAddress)"
+  define stateStateOracle where "stateStateOracle = the (stateOracleState contracts'' (BridgeState.stateOracle stateBridge))"
+  define stateTokenDeposit where "stateTokenDeposit = the (tokenDepositState contracts'' tokenDepositAddress)"
+  define stateTokenDeposit' where "stateTokenDeposit' = snd (snd (getDeadStatus contracts'' stateTokenDeposit block'))"
+
+  have dB: "BridgeState.deposit stateBridge = tokenDepositAddress"
+    using assms
+    unfolding stateBridge_def properSetup_def Let_def
+    by auto
+
+  have bD: "TokenDepositState.bridge stateTokenDeposit = bridgeAddress"
+    using assms
+    unfolding stateTokenDeposit_def
+    by (meson callUpdateProperSetup properSetupReachable properSetup_def)
+
+  have sOB: "BridgeState.stateOracle stateBridge = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))"
+    using assms
+    unfolding stateBridge_def
+    by simp
+
+  have "properSetup contracts' tokenDepositAddress bridgeAddress token"
+    using assms
+    by (meson callUpdateProperSetup properSetupReachable)
+
+  from cancel
+  obtain stateRoot' where
+    lVS: "lastValidState contracts'' stateTokenDeposit' = (Success, stateRoot')" and
+    vCP: "callVerifyClaimProof contracts'' (TokenDepositState.proofVerifier stateTokenDeposit') (bridge stateTokenDeposit') ID
+          stateRoot' proof = Success" and
+         "getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')"
+    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def stateTokenDeposit_def stateTokenDeposit'_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+  have "lastState stateStateOracle = stateRoot"
+    using assms
+    by (metis (no_types, lifting) callUpdateLastState noUpdateLastState sOB stateStateOracle_def)
+  then have "getLastStateB contracts'' bridgeAddress = stateRoot"
+    using stateBridge_def stateStateOracle_def
+    by argo
+  then have "getLastStateTD contracts'' tokenDepositAddress = stateRoot"
+    using assms properSetup_stateOracleAddress update
+    by auto
+
+  have "stateRoot' = stateRoot"
+  proof (cases "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) \<noteq> 0")
+    case True
+    have "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) = stateRoot"
+    proof (rule deadStateLastState)
+      show "reachableFrom contracts' contracts'' steps'"
+        by fact
+    next
+      show "properSetup contracts' tokenDepositAddress bridgeAddress token" 
+        by fact 
+    next
+      show "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contracts' bridgeAddress))
+             in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps'"
+        using \<open>reachableFrom contracts' contracts'' steps'\<close>
+        by (metis noUpdate reachableFromBridgeStateOracle sOB stateBridge_def)
+    next
+      show "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 0"
+        using \<open>deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0\<close> update
+        using callUpdateDeadState
+        by presburger
+    next
+      show "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) \<noteq> 0"
+        by fact
+    next
+      show "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contracts' bridgeAddress))
+             in callLastState contracts' stateOracleAddress = (Success, stateRoot)"
+        using \<open>properSetup contracts' tokenDepositAddress bridgeAddress token\<close> assms(6) 
+        by (smt (verit, best) callLastState_def callUpdateLastState option.case_eq_if properSetup_def reachableFromBridgeStateOracle sOB stateBridge_def update)
+    qed
+    then show ?thesis
+      using \<open>getLastStateB contracts'' bridgeAddress = stateRoot\<close> lVS True
+      unfolding lastValidState_def
+      by (metis \<open>getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')\<close> bot_nat_0.not_eq_extremum deadStateGetDeadStatus snd_conv stateTokenDeposit_def)
+  next
+    case False
+    then show ?thesis
+      using \<open>getLastStateB contracts'' bridgeAddress = stateRoot\<close> lVS
+      unfolding lastValidState_def
+      by (metis \<open>getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')\<close> \<open>getLastStateTD contracts'' tokenDepositAddress = stateRoot\<close> assms(4) getDeadStatusSetsDeadState snd_conv stateTokenDeposit_def)
+  qed
+
+  from update have "generateStateRoot contracts = stateRoot"
+    using updateSuccess
+    by simp
+
+  have "getClaim (the (bridgeState contracts bridgeAddress)) ID = False"
+  proof (rule verifyClaimProofE)
+    show "generateStateRoot contracts = stateRoot"
+      by fact
+  next
+    show "verifyClaimProof () bridgeAddress ID stateRoot proof = True"
+      using vCP bD \<open>stateRoot' = stateRoot\<close>
+      unfolding callVerifyClaimProof_def
+      unfolding stateTokenDeposit'_def stateTokenDeposit_def
+      by (simp add: snd_def split: option.splits prod.splits if_split_asm)
+  next
+    have "bridgeState contracts bridgeAddress \<noteq> None"
+      using assms
+      by (meson \<open>reachableFrom initContracts contracts steps\<close> properSetup_def reachableFromBridgeState)
+    then show "bridgeState contracts bridgeAddress = Some (the (bridgeState contracts bridgeAddress))"
+      by simp
+  qed
+
+   ultimately
+   show False
+     by simp
+qed
+
+end
 
 end
