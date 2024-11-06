@@ -86,7 +86,7 @@ lemma callClaimCallVerifyProof:
   shows "let state = the (bridgeState contracts address);
              lastState = getLastStateB contracts address
           in callVerifyDepositProof contracts (BridgeState.proofVerifier state) (BridgeState.deposit state)
-                             ID (hash (sender msg) token amount) lastState proof = Success"
+                             ID (hash3 (sender msg) token amount) lastState proof = Success"
   using assms callLastState
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def simp del: callLastState split: option.splits prod.splits if_split_asm)
@@ -214,7 +214,7 @@ lemma callClaimI:
   assumes "ERC20state contracts (getMinted stateTokenPairs token) \<noteq> None" 
   assumes "getMinted stateTokenPairs token \<noteq> 0"
   \<comment> \<open>Proof must be verified\<close>
-  assumes "verifyDepositProof () (BridgeState.deposit stateBridge) ID (hash (sender msg) token amount) (StateOracleState.lastState stateStateOracle) proof"
+  assumes "verifyDepositProof () (BridgeState.deposit stateBridge) ID (hash3 (sender msg) token amount) (StateOracleState.lastState stateStateOracle) proof"
   \<comment> \<open>There must not be a prior claim\<close>
   assumes "getClaim stateBridge ID = False"
   shows "fst (callClaim contracts address msg ID token amount proof) = Success"
@@ -228,7 +228,7 @@ proof-
     by blast
   moreover
   have "callVerifyDepositProof contracts (BridgeState.proofVerifier stateBridge)
-         (BridgeState.deposit stateBridge) ID (hash (sender msg) token amount) (StateOracleState.lastState stateStateOracle) proof =
+         (BridgeState.deposit stateBridge) ID (hash3 (sender msg) token amount) (StateOracleState.lastState stateStateOracle) proof =
           Success"
     using assms callVerifyDepositProofI
     by auto

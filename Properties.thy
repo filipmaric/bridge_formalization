@@ -59,6 +59,11 @@ proof-
       then show ?thesis
         using reachableFrom_step
         by simp
+    next
+      case (WITHDRAW address' caller' token' amount' proof')
+      then show ?thesis
+        using reachableFrom_step
+        by simp
     qed
   qed
   then show ?thesis
@@ -99,7 +104,7 @@ theorem claimPossibleAfterDepositAndUpdate:
   \<comment> \<open>The same person who made the deposit can make the claim\<close>
   assumes "sender msg' = sender msg"
 
-  assumes "hash (sender msg) token amount \<noteq> 0" (* Additional assumption *)
+  assumes "hash3 (sender msg) token amount \<noteq> 0" (* Additional assumption *)
 
   \<comment> \<open>A claim can be made with the state root and the proof obtained from the state that
       was used for the last update\<close>
@@ -116,7 +121,7 @@ proof-
   define "proof" where "proof = generateDepositProof contractsD' ID"
   define stateRoot where "stateRoot = generateStateRoot contractsD'"
 
-  have "verifyDepositProof () tokenDepositAddress ID (hash (sender msg) token amount) stateRoot proof = True"
+  have "verifyDepositProof () tokenDepositAddress ID (hash3 (sender msg) token amount) stateRoot proof = True"
   proof (rule verifyDepositProofI)
     show "generateDepositProof contractsD' ID = proof"
       unfolding proof_def
@@ -135,15 +140,15 @@ proof-
     then show "tokenDepositState contractsD' tokenDepositAddress = Some (the (tokenDepositState contractsD' tokenDepositAddress))"
       by simp
   next
-    show "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash (sender msg) token amount"
+    show "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
     proof (rule reachableFromGetDepositBridgeNotDead)
       show "reachableFrom contractsD contractsD' steps" 
         by fact
     next
-      show "hash (sender msg) token amount \<noteq> 0"
+      show "hash3 (sender msg) token amount \<noteq> 0"
         by fact
     next
-      show "getDeposit (the (tokenDepositState contractsD tokenDepositAddress)) ID = hash (sender msg) token amount"
+      show "getDeposit (the (tokenDepositState contractsD tokenDepositAddress)) ID = hash3 (sender msg) token amount"
         using callDepositWritesHash assms
         by blast
     next
@@ -204,13 +209,13 @@ proof-
     show "bridgeState contractsU' bridgeAddress = Some stateBridgeU'"
       by fact
   next
-    show "verifyDepositProof () (BridgeState.deposit stateBridgeU') ID (hash (sender msg') token amount)  
+    show "verifyDepositProof () (BridgeState.deposit stateBridgeU') ID (hash3 (sender msg') token amount)  
           (StateOracleState.lastState (the (stateOracleState contractsU' (BridgeState.stateOracle stateBridgeU')))) proof"
       using \<open>BridgeState.deposit stateBridgeU' = tokenDepositAddress\<close>
       using \<open>bridgeState contractsU' bridgeAddress = Some stateBridgeU'\<close>
       using \<open>BridgeState.stateOracle stateBridgeU' = stateOracleAddress\<close>
       using \<open>StateOracleState.lastState (the (stateOracleState contractsU' stateOracleAddress)) = stateRoot\<close>
-      using \<open>verifyDepositProof () tokenDepositAddress ID (hash (sender msg) token amount) stateRoot proof = True\<close>
+      using \<open>verifyDepositProof () tokenDepositAddress ID (hash3 (sender msg) token amount) stateRoot proof = True\<close>
       using \<open>sender msg' = sender msg\<close>
       by simp
   next
@@ -269,7 +274,7 @@ lemma callClaimGetDeposit:
   \<comment> \<open>claim succeded\<close>
   assumes claim: "callClaim contracts'' bridgeAddress msg ID token amount proof = (Success, contracts''')"
 
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = hash (sender msg) token amount"
+  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
 proof-
   define stateBridge where "stateBridge = the (bridgeState contracts'' bridgeAddress)"
   define stateStateOracle where "stateStateOracle = the (stateOracleState contracts'' (BridgeState.stateOracle stateBridge))"
@@ -304,16 +309,16 @@ proof-
     using noUpdateLastState sOB
     by (metis stateBridge_def)
 
-  have "callVerifyDepositProof contracts'' (BridgeState.proofVerifier stateBridge) (BridgeState.deposit stateBridge) ID (hash (sender msg) token amount)
+  have "callVerifyDepositProof contracts'' (BridgeState.proofVerifier stateBridge) (BridgeState.deposit stateBridge) ID (hash3 (sender msg) token amount)
          stateRoot proof = Success"
     using callClaimCallVerifyProof[OF claim] 1
     unfolding stateBridge_def Let_def stateStateOracle_def
     by blast
-  then have *: "verifyDepositProof () (BridgeState.deposit stateBridge) ID (hash (sender msg) token amount) stateRoot proof = True"
+  then have *: "verifyDepositProof () (BridgeState.deposit stateBridge) ID (hash3 (sender msg) token amount) stateRoot proof = True"
     unfolding callVerifyDepositProof_def
     by (simp split: option.splits if_split_asm)
   show "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID =
-        hash (sender msg) token amount"
+        hash3 (sender msg) token amount"
   proof (rule verifyDepositProofE[OF _  *])
     show "generateStateRoot contracts = stateRoot"
       using updateSuccess update
@@ -346,9 +351,9 @@ theorem depositBeforeClaim:
   \<comment> \<open>Updates never set zero state root\<close>
   assumes "updatesNonZero steps"
   \<comment> \<open>hash of the transaction is non-zero\<close>
-  assumes "hash (sender msg) token amount \<noteq> 0"
+  assumes "hash3 (sender msg) token amount \<noteq> 0"
   \<comment> \<open>hash function is injective\<close>
-  assumes hash_inj
+  assumes hash3_inj
 
   \<comment> \<open>The correct deposit must have happened\<close>
   shows "DEPOSIT tokenDepositAddress (sender msg) ID token amount \<in> set steps"
@@ -378,7 +383,7 @@ proof-
     using lastUpdateHappened[OF \<open>reachableFrom initContracts contracts steps\<close>, of stateOracleAddress]
     by auto
   
-  then have "getDeposit (the (tokenDepositState contractsU tokenDepositAddress)) ID = hash (sender msg) token amount"
+  then have "getDeposit (the (tokenDepositState contractsU tokenDepositAddress)) ID = hash3 (sender msg) token amount"
     using assms callClaimGetDeposit 
     by (smt (verit, best) reachableFromBridgeStateOracle callUpdateITokenDeposit properSetupReachable stateOracleAddress_def)
   then show ?thesis
@@ -408,14 +413,14 @@ lemma onlyDepositorCanClaim:
 
   (* NOTE: additional assumptions *)
   \<comment> \<open>transaction hashes are not zero\<close>
-  assumes "hash (sender msg) token amount \<noteq> 0"
-  assumes "hash (sender msg') token' amount' \<noteq> 0"
+  assumes "hash3 (sender msg) token amount \<noteq> 0"
+  assumes "hash3 (sender msg') token' amount' \<noteq> 0"
   \<comment> \<open>the hash function is injective\<close>
-  assumes hash_inj
+  assumes hash3_inj
 
   shows "sender msg = sender msg'" "token = token'" "amount = amount'"
 proof-
-  have "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash (sender msg) token amount"
+  have "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
     using callDepositWritesHash deposit
     by simp
 
@@ -436,7 +441,7 @@ proof-
     using \<open>reachableFrom contractsU' contractsC steps3\<close>
     by (metis callDepositIBridge deposit reachableFromBridgeStateOracle stateOracleAddress_def)
 
-  have "getDeposit (the (tokenDepositState contractsU'x tokenDepositAddress)) ID = hash (sender msg') token' amount'"
+  have "getDeposit (the (tokenDepositState contractsU'x tokenDepositAddress)) ID = hash3 (sender msg') token' amount'"
   proof (rule callClaimGetDeposit)
     show "callClaim contractsC bridgeAddress msg' ID token' amount' proof = (Success, contractsC')"
       by fact
@@ -464,18 +469,18 @@ proof-
       by (metis callDepositIBridge deposit reachableFromBridgeStateOracle)
   qed
 
-  have "hash (sender msg) token amount = hash (sender msg') token' amount'"
+  have "hash3 (sender msg) token amount = hash3 (sender msg') token' amount'"
     using reachableFromGetDeposit
-    using \<open>getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash (sender msg) token amount\<close> \<open>getDeposit (the (tokenDepositState contractsU'x tokenDepositAddress)) ID = hash (sender msg') token' amount'\<close>
+    using \<open>getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount\<close> \<open>getDeposit (the (tokenDepositState contractsU'x tokenDepositAddress)) ID = hash3 (sender msg') token' amount'\<close>
     using \<open>callUpdate contractsUx stateOracleAddress blockx blockNumx stateRootx = (Success, contractsU'x)\<close>
-    using \<open>hash (sender msg) token amount \<noteq> 0\<close>  \<open>hash (sender msg') token' amount' \<noteq> 0\<close>
+    using \<open>hash3 (sender msg) token amount \<noteq> 0\<close>  \<open>hash3 (sender msg') token' amount' \<noteq> 0\<close>
     using \<open>reachableFrom contractsD' contractsUx steps1x\<close>
-    by (metis  callUpdateITokenDeposit)
+    by (metis callUpdateITokenDeposit)
 
   then show "sender msg = sender msg'" "token = token'" "amount = amount'"
-    using \<open>hash_inj\<close>
-    unfolding hash_inj_def
-    by blast+    
+    using \<open>hash3_inj\<close>
+    unfolding hash3_inj_def
+    by metis+
 qed
 
 (* ------------------------------------------------------------------------------------ *)
@@ -500,14 +505,14 @@ theorem cancelDepositOnlyAfterDeposit:
 
   (* NOTE: additional assumptions *)
   \<comment> \<open>hash value of the transaction is not zero\<close>
-  assumes "hash (sender msg) token amount \<noteq> 0"
+  assumes "hash3 (sender msg) token amount \<noteq> 0"
   \<comment> \<open>the hash function is injective\<close>
-  assumes hash_inj
+  assumes hash3_inj
 
   \<comment> \<open>there must had been a previous deposit with the same ID\<close>
   shows "DEPOSIT tokenDepositAddress (sender msg) ID token amount \<in> set steps"
 proof-
-  have "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = hash (sender msg) token amount"
+  have "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = hash3 (sender msg) token amount"
     using cancel
     unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
     by (simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -541,10 +546,11 @@ next
     then show ?thesis
       using reachableFrom_step
       apply (cases step)
-        apply (metis callDepositInDeadState executeStep.simps(1) list.set_intros(2))
-       apply simp
-       apply (metis callUpdateDeadState executeStep.simps(3) list.set_intros(2))
-      apply (auto simp add: callCancelDepositWhileDeadInDeadState)
+      apply (metis callDepositInDeadState executeStep.simps(1) list.set_intros(2))
+      apply simp
+      apply (metis callUpdateDeadState executeStep.simps(3) list.set_intros(2))
+      apply (metis callCancelDepositWhileDeadInDeadState executeStep.simps(4) list.set_intros(2))
+      apply (metis callWithdrawWhileDeadInDeadState executeStep.simps(5) list.set_intros(2))
       done
   next
     case False
@@ -606,6 +612,31 @@ next
           show "callCancelDepositWhileDead contracts' tokenDepositAddress (message caller' 0) block ID' token' amount' proof' =
                (Success, contracts'')"
             using CANCEL reachableFrom_step.prems reachableFrom_step.hyps True
+            by auto
+        qed
+      qed
+    next
+      case (WITHDRAW address' caller' token' amount' proof')
+      show ?thesis
+      proof (cases "address' = tokenDepositAddress")
+        case False
+        then show ?thesis
+          using reachableFrom_step
+          by (metis callWithdrawWhileDeadOtherAddress WITHDRAW executeStep.simps(5) list.set_intros(2))
+      next
+        case True
+        show ?thesis
+        proof (rule callWithdrawWhileDeadSetsDeadState)
+          show "getLastStateTD contracts' tokenDepositAddress = stateRoot"
+            using reachableFrom_step.prems reachableFrom_step.hyps
+            by (smt (verit, ccfv_threshold) noUpdateLastState callLastState callLastStateI list.set_intros(2) prod.exhaust_sel properSetupReachable properSetup_def reachableFromBridgeStateOracle)
+        next
+          show "\<not> bridgeDead contracts' tokenDepositAddress"
+            by fact
+        next
+          show "callWithdrawWhileDead contracts' tokenDepositAddress (message caller' 0) block token' amount' proof' =
+               (Success, contracts'')"
+            using WITHDRAW reachableFrom_step.prems reachableFrom_step.hyps True
             by auto
         qed
       qed
@@ -749,5 +780,7 @@ proof (rule ccontr)
    show False
      by simp
 qed
+
+end
 
 end

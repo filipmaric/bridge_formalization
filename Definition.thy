@@ -69,6 +69,11 @@ abbreviation setDeposit :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow
 abbreviation deleteDeposit :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> TokenDepositState" where
   "deleteDeposit state ID \<equiv> state \<lparr> deposits := Mapping.delete ID (deposits state) \<rparr>"
 
+abbreviation getTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> bool" where
+  "getTokenWithdrawn state withdrawHash \<equiv> lookupBool (tokenWithdrawn state) withdrawHash"
+abbreviation setTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> TokenDepositState" where
+ "setTokenWithdrawn state withdrawHash \<equiv>  state \<lparr> tokenWithdrawn := Mapping.update withdrawHash True (tokenWithdrawn state)\<rparr>"
+
 definition TIME_UNTIL_DEAD :: nat where
   "TIME_UNTIL_DEAD = 7 * 24 * 60 * 60" 
 
@@ -326,14 +331,21 @@ definition callOriginalToMinted :: "Contracts \<Rightarrow> address \<Rightarrow
            | Some state \<Rightarrow> (Success, lookupNat (originalToMinted state) token))"
 
 locale Hash = 
-  fixes hash :: "nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat"
+  fixes hash2 :: "nat \<Rightarrow> nat \<Rightarrow> nat"
+  fixes hash3 :: "nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat"
 begin
 
 text \<open>hash function is injective\<close>
-definition hash_inj where
-  "hash_inj  \<longleftrightarrow> (\<forall> caller caller' amount amount' token token'. 
-                  hash caller token amount = hash caller' token' amount' \<longrightarrow> 
-                  token = token' \<and> caller = caller' \<and> amount = amount')"
+definition hash2_inj where
+  "hash2_inj  \<longleftrightarrow> (\<forall> x1 x2 x1' x2'. 
+                  hash2 x1 x2 = hash2 x1' x2'  \<longrightarrow> 
+                  x1' = x1 \<and> x2' = x2)"
+
+text \<open>hash function is injective\<close>
+definition hash3_inj where
+  "hash3_inj  \<longleftrightarrow> (\<forall> x1 x2 x3 x1' x2' x3'. 
+                  hash3 x1 x2 x3 = hash3 x1' x2' x3' \<longrightarrow> 
+                  x1' = x1 \<and> x2' = x2 \<and> x3' = x3)"
 
 end
 
@@ -367,7 +379,7 @@ definition deposit :: "TokenDepositState \<Rightarrow> Contracts  \<Rightarrow> 
                              else let realAmount = balanceAfter - balanceBefore
                                in if realAmount = 0 then
                                    (Fail ''No tokens were transferred'', state, contracts) 
-                               else let state'' = setDeposit state' ID (hash (sender msg) token realAmount) 
+                               else let state'' = setDeposit state' ID (hash3 (sender msg) token realAmount) 
                                      in (Success, state'', contracts'))"
 
 definition callDeposit where
@@ -445,6 +457,25 @@ locale ProofVerifier = Hash +
          bridgeState contracts bridgeAddress = Some state\<rbrakk> \<Longrightarrow>
          getClaim state ID = False"
 
+
+  \<comment> \<open>verifyBalanceProof proofVerifierState token caller amount stateRoot proof\<close> 
+  fixes verifyBalanceProof :: "unit \<Rightarrow> address \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> bytes \<Rightarrow> bool"
+  fixes generateBalanceProof :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes"
+
+  assumes verifyBalanceProofI:
+    "\<And> contracts stateRoot proof token caller amount. 
+        \<lbrakk>generateBalanceProof contracts token caller amount = proof; 
+         generateStateRoot contracts = stateRoot; 
+         ERC20state contracts token = Some state;
+         balanceOf state caller = amount\<rbrakk> \<Longrightarrow>
+            verifyBalanceProof () token caller amount stateRoot proof = True" 
+  assumes verifyBalanceProofE:
+    "\<And> contracts stateRoot proof token caller amount. 
+        \<lbrakk>generateStateRoot contracts = stateRoot; 
+         verifyBalanceProof () token caller amount stateRoot proof = True;
+         ERC20state contracts token = Some state\<rbrakk> \<Longrightarrow>
+         balanceOf state caller = amount"
+
   assumes updateSuccess:
         "\<And> contracts address block blockNum stateRoot contracts'.
          \<lbrakk>callUpdate contracts address block blockNum stateRoot = (Success, contracts')\<rbrakk> \<Longrightarrow> 
@@ -475,12 +506,23 @@ definition callVerifyClaimProof where
                else
                   Success)"
 
+definition callVerifyBalanceProof where
+  "callVerifyBalanceProof contracts proofVerifierAddress token caller amount stateRoot proof = 
+      (case proofVerifierState contracts proofVerifierAddress of 
+            None \<Rightarrow>
+               Fail ''wrong address''
+          | Some state \<Rightarrow> 
+               if \<not> verifyBalanceProof state token caller amount stateRoot proof then
+                  Fail ''proof verification failed''
+               else
+                  Success)"
+
 definition claim :: "Contracts \<Rightarrow> Message \<Rightarrow> BridgeState \<Rightarrow> uint256 \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes \<Rightarrow> Status \<times> BridgeState \<times> Contracts" where
   "claim contracts msg state ID token amount proof =
    (if getClaim state ID then 
       (Fail ''Already claimed'', state, contracts) 
     else 
-       let depositHash = hash (sender msg) token amount;
+       let depositHash = hash3 (sender msg) token amount;
            (status, lastState) = callLastState contracts (stateOracle state)
         in if status \<noteq> Success then
               (status, state, contracts)
@@ -518,7 +560,7 @@ text \<open>TokenDeposit\<close>
 
 definition cancelDepositWhileDead where
   "cancelDepositWhileDead state contracts this msg block ID token amount proof = 
-     (if getDeposit state ID \<noteq> hash (sender msg) token amount then
+     (if getDeposit state ID \<noteq> hash3 (sender msg) token amount then
          (Fail ''No deposit to cancel'', state, contracts)
       else 
          let (status, dead, state') = getDeadStatus contracts state block
@@ -554,6 +596,36 @@ definition callCancelDepositWhileDead where
                  else 
                     (Success, setTokenDepositState contracts' address state'))"
 
+(* FIXME: add exitAdministrator *)
+definition withdrawWhileDead where
+  "withdrawWhileDead state contracts this block msg token amount proof = 
+    (let (status, dead, state') = getDeadStatus contracts state block
+      in if status \<noteq> Success then 
+            (status, state', contracts)
+         else if \<not> dead then 
+            (Fail ''Bridge must be dead'', state', contracts)
+         else let status = callVerifyBalanceProof contracts (TokenDepositState.proofVerifier state) token (sender msg) amount (deadState state) proof
+               in if status \<noteq> Success then
+                 (status, state', contracts)
+               else let withdrawHash = hash2 (sender msg) token
+                     in if getTokenWithdrawn state withdrawHash then
+                           (Fail ''Already withdrawn'', state', contracts) 
+                        else let (status, contracts') = callSafeTransferFrom contracts token this (sender msg) amount
+                              in if status \<noteq> Success then
+                                    (status, state', contracts)
+                                 else
+                                    (Success, setTokenWithdrawn state' withdrawHash, contracts'))"
+
+definition callWithdrawWhileDead where
+   "callWithdrawWhileDead contracts address msg block token amount proof = 
+     (case tokenDepositState contracts address of
+           None \<Rightarrow> (Fail ''wrong address'', contracts)
+         | Some state \<Rightarrow> 
+             let (status, state', contracts') = withdrawWhileDead state contracts address block msg token amount proof
+              in if status \<noteq> Success then
+                    (status, contracts)
+                 else 
+                    (Success, setTokenDepositState contracts' address state'))"
 
 end
 
