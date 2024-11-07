@@ -604,7 +604,7 @@ definition withdrawWhileDead where
             (status, state', contracts)
          else if \<not> dead then 
             (Fail ''Bridge must be dead'', state', contracts)
-         else let status = callVerifyBalanceProof contracts (TokenDepositState.proofVerifier state) token (sender msg) amount (deadState state) proof
+         else let status = callVerifyBalanceProof contracts (TokenDepositState.proofVerifier state') token (sender msg) amount (deadState state') proof
                in if status \<noteq> Success then
                  (status, state', contracts)
                else let withdrawHash = hash2 (sender msg) token

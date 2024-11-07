@@ -713,7 +713,7 @@ proof (rule ccontr)
     by auto
 
   have "stateRoot' = stateRoot"
-  proof (cases "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) \<noteq> 0")
+  proof (cases "bridgeDead contracts'' tokenDepositAddress")
     case True
     have "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) = stateRoot"
     proof (rule deadStateLastState)
@@ -738,7 +738,7 @@ proof (rule ccontr)
     next
       show "let stateOracleAddress = stateOracleAddressB contracts' bridgeAddress
              in callLastState contracts' stateOracleAddress = (Success, stateRoot)"
-        using \<open>properSetup contracts' tokenDepositAddress bridgeAddress token\<close> assms(6) 
+        using \<open>properSetup contracts' tokenDepositAddress bridgeAddress token\<close> \<open>reachableFrom contracts' contracts'' steps'\<close> 
         by (smt (verit, best) callLastState_def callUpdateLastState option.case_eq_if properSetup_def reachableFromBridgeStateOracle sOB stateBridge_def update)
     qed
     then show ?thesis
@@ -750,8 +750,10 @@ proof (rule ccontr)
     case False
     then show ?thesis
       using \<open>getLastStateB contracts'' bridgeAddress = stateRoot\<close> lVS
-      unfolding lastValidState_def
-      by (metis \<open>getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')\<close> \<open>getLastStateTD contracts'' tokenDepositAddress = stateRoot\<close> assms(4) getDeadStatusSetsDeadState snd_conv stateTokenDeposit_def)
+            \<open>getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')\<close> 
+            \<open>getLastStateTD contracts'' tokenDepositAddress = stateRoot\<close> \<open>stateRoot \<noteq> 0\<close> 
+      unfolding lastValidState_def stateTokenDeposit_def
+      by (metis getDeadStatusSetsDeadState snd_conv)
   qed
 
   from update have "generateStateRoot contracts = stateRoot"
@@ -779,6 +781,136 @@ proof (rule ccontr)
    ultimately
    show False
      by simp
+qed
+
+
+text \<open>If withdrawal succeeds, then the bridge is dead and 
+      the user had the exact amount of tokens in the state in which the bridge died\<close>
+theorem withdrawSufficientBalance:
+  assumes "properSetup initContracts tokenDepositAddress bridgeAddress token"
+  assumes "reachableFrom initContracts contracts steps"
+  \<comment> \<open>The last update that happened when the bridge was still alive\<close>
+  assumes update:
+          "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
+            in callUpdate contracts stateOracleAddress block blockNum stateRoot = (Success, contracts')"
+  assumes "stateRoot \<noteq> 0" (* NOTE: additional assumption *)
+  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0"
+  \<comment> \<open>There were no updates since then\<close>
+  assumes "reachableFrom contracts' contracts'' steps'"
+  assumes noUpdate: "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))
+            in \<nexists> stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps'"
+  \<comment> \<open>Withdraw succeded\<close>
+  assumes withdraw:
+          "callWithdrawWhileDead contracts'' tokenDepositAddress msg block' token amount proof = (Success, contracts''')"
+  \<comment> \<open>Caller had sufficient balance\<close>
+  shows "callBalanceOf contracts token (sender msg) = (Success, amount)"
+proof-
+  define stateBridge where "stateBridge = the (bridgeState contracts'' bridgeAddress)"
+  define stateStateOracle where "stateStateOracle = the (stateOracleState contracts'' (BridgeState.stateOracle stateBridge))"
+  define stateTokenDeposit where "stateTokenDeposit = the (tokenDepositState contracts'' tokenDepositAddress)"
+  define stateTokenDeposit' where "stateTokenDeposit' = snd (snd (getDeadStatus contracts'' stateTokenDeposit block'))"
+  define stateERC20 where "stateERC20 = the (ERC20state contracts' token)"
+
+  have sOB: "BridgeState.stateOracle stateBridge = BridgeState.stateOracle (the (bridgeState initContracts bridgeAddress))"
+    using assms
+    unfolding stateBridge_def
+    by simp
+
+  have "properSetup contracts' tokenDepositAddress bridgeAddress token"
+    using assms
+    by (meson callUpdateProperSetup properSetupReachable)
+
+  from update have "generateStateRoot contracts = stateRoot"
+    using updateSuccess
+    by simp
+
+  have "lastState stateStateOracle = stateRoot"
+    using assms
+    by (metis (no_types, lifting) callUpdateLastState noUpdateLastState sOB stateStateOracle_def)
+  then have "getLastStateB contracts'' bridgeAddress = stateRoot"
+    using stateBridge_def stateStateOracle_def
+    by argo
+  then have "getLastStateTD contracts'' tokenDepositAddress = stateRoot"
+    using assms properSetup_stateOracleAddress update
+    by auto
+
+  from withdraw
+  obtain stateRoot' where
+    dS: "deadState stateTokenDeposit' = stateRoot'" and
+    vCP: "callVerifyBalanceProof contracts'' (TokenDepositState.proofVerifier stateTokenDeposit') token (sender msg) amount
+          stateRoot' proof = Success" and
+    status: "getDeadStatus contracts'' stateTokenDeposit block' = (Success, True, stateTokenDeposit')"
+    unfolding callWithdrawWhileDead_def withdrawWhileDead_def stateTokenDeposit_def stateTokenDeposit'_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+  have "stateRoot' = stateRoot"
+  proof (cases "bridgeDead contracts'' tokenDepositAddress")
+    case True 
+    have "deadState (the (tokenDepositState contracts'' tokenDepositAddress)) = stateRoot"
+    proof (rule deadStateLastState)
+      show "reachableFrom contracts' contracts'' steps'"
+        by fact
+    next
+      show "properSetup contracts' tokenDepositAddress bridgeAddress token" 
+        by fact 
+    next
+      show "let stateOracleAddress = stateOracleAddressB contracts' bridgeAddress
+             in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps'"
+        using \<open>reachableFrom contracts' contracts'' steps'\<close>
+        by (metis noUpdate reachableFromBridgeStateOracle sOB stateBridge_def)
+    next
+      show "\<not> bridgeDead contracts' tokenDepositAddress"
+        using \<open>deadState (the (tokenDepositState contracts tokenDepositAddress)) = 0\<close> update
+        using callUpdateDeadState
+        by presburger
+    next
+      show "bridgeDead contracts'' tokenDepositAddress"
+        by fact
+    next
+      show "let stateOracleAddress = stateOracleAddressB contracts' bridgeAddress
+             in callLastState contracts' stateOracleAddress = (Success, stateRoot)"
+        using \<open>properSetup contracts' tokenDepositAddress bridgeAddress token\<close> 
+              \<open>reachableFrom contracts' contracts'' steps'\<close>
+        by (smt (verit, best) callLastState_def callUpdateLastState option.case_eq_if properSetup_def reachableFromBridgeStateOracle sOB stateBridge_def update)
+    qed
+    then show ?thesis
+      using dS \<open>stateRoot \<noteq> 0\<close> 
+      using getDeadStatusInDeadState stateTokenDeposit_def status
+      by blast
+  next
+    case False
+    then have "deadState stateTokenDeposit' = stateRoot"
+      using getDeadStatusSetsDeadState[OF status]
+      using \<open>getLastStateTD contracts'' tokenDepositAddress = stateRoot\<close>
+      unfolding stateTokenDeposit_def
+      by fastforce
+    then show ?thesis
+      using dS
+      by simp
+  qed
+
+  have "ERC20state contracts token \<noteq> None"
+    using \<open>properSetup contracts' tokenDepositAddress bridgeAddress token\<close> update
+    by (metis callUpdateIERC20 properSetup_def)
+
+  have "balanceOf (the (ERC20state contracts token)) (sender msg) = amount"
+  proof (rule verifyBalanceProofE)
+    show "verifyBalanceProof () token (sender msg) amount stateRoot proof = True"
+      using vCP \<open>stateRoot' = stateRoot\<close>
+      unfolding callVerifyBalanceProof_def
+      by (simp split: option.splits if_split_asm)
+  next
+    show "generateStateRoot contracts = stateRoot"
+      by fact
+  next
+    show "ERC20state contracts token = Some (the (ERC20state contracts token))"
+      using \<open>ERC20state contracts token \<noteq> None\<close>
+      by simp
+  qed
+  then show ?thesis
+    using \<open>ERC20state contracts token \<noteq> None\<close>
+    unfolding callBalanceOf_def
+    by (auto split: option.splits)
 qed
 
 end
