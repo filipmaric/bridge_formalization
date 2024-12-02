@@ -26,4 +26,13 @@ lemma lookupNat_delete' [simp]:
   unfolding lookupNat_def
   by (simp add: lookup_default_def)
 
+definition mapping_value_sum where
+ "mapping_value_sum m = sum_list (map snd (Mapping.ordered_entries m))"
+
+lemma mapping_value_sum_update [simp]:
+  assumes "finite (Mapping.keys m)"
+  shows "mapping_value_sum (Mapping.update k (lookupNat m k + v) m) = mapping_value_sum m + v"
+  using assms
+  sorry
+
 end

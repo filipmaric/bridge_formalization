@@ -72,7 +72,7 @@ abbreviation deleteDeposit :: "TokenDepositState \<Rightarrow> uint256 \<Rightar
 abbreviation getTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> bool" where
   "getTokenWithdrawn state withdrawHash \<equiv> lookupBool (tokenWithdrawn state) withdrawHash"
 abbreviation setTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> TokenDepositState" where
- "setTokenWithdrawn state withdrawHash \<equiv>  state \<lparr> tokenWithdrawn := Mapping.update withdrawHash True (tokenWithdrawn state)\<rparr>"
+  "setTokenWithdrawn state withdrawHash \<equiv>  state \<lparr> tokenWithdrawn := Mapping.update withdrawHash True (tokenWithdrawn state)\<rparr>"
 
 definition TIME_UNTIL_DEAD :: nat where
   "TIME_UNTIL_DEAD = 7 * 24 * 60 * 60" 
@@ -649,5 +649,12 @@ abbreviation getMinted where
 abbreviation bridgeDead where
   "bridgeDead contracts tokenDepositAddress \<equiv>
    deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+
+text \<open>read minted token for a given token using the given bridge address\<close>
+definition bridgeMintedToken :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address" where
+  "bridgeMintedToken contracts bridgeAddress token = 
+    (let state = the (bridgeState contracts bridgeAddress);
+         stateTokenPairs = the (tokenPairsState contracts (BridgeState.tokenPairs state))
+      in getMinted stateTokenPairs token)"
 
 end

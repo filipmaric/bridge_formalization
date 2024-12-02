@@ -51,7 +51,7 @@ proof-
     by (auto simp add: Let_def split: prod.splits option.splits)
 qed
 
-lemma claimBalanceOf:
+lemma claimBalanceOfMinted:
   assumes "claim contracts msg state ID token amount proof = (Success, state', contracts')"
   assumes "stateTokenPairs = the (tokenPairsState contracts (tokenPairs state))"
   assumes "mintedToken = getMinted stateTokenPairs token"
@@ -61,16 +61,51 @@ lemma claimBalanceOf:
   unfolding claim_def
   by (auto simp add: Let_def split: if_split_asm prod.splits option.splits)
 
-lemma callClaimBalanceOf:
+lemma callClaimBalanceOfMinted:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  assumes "state = the (bridgeState contracts address)"
-  assumes "stateTokenPairs = the (tokenPairsState contracts (tokenPairs state))"
-  assumes "mintedToken = getMinted stateTokenPairs token"
+  assumes "mintedToken = bridgeMintedToken contracts address token"
   shows "balanceOf (the (ERC20state contracts' mintedToken)) (sender msg) = 
          balanceOf (the (ERC20state contracts mintedToken)) (sender msg) + amount"
-  using assms claimBalanceOf
-  unfolding callClaim_def
+  using assms claimBalanceOfMinted
+  unfolding callClaim_def bridgeMintedToken_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callClaimOtherToken:
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  assumes "mintedToken = bridgeMintedToken contracts address token"
+  assumes "mintedToken \<noteq> token'"
+  shows "ERC20state contracts' token' = ERC20state contracts token'"
+  using assms
+  unfolding callClaim_def claim_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+     (metis bridgeMintedToken_def callMintIBridge callMintOtherToken callOriginalToMinted option.sel)
+ (* FIXME: avoid proof after auto *)
+
+lemma callClaimTotalBalance:
+  assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"
+  assumes "callClaim contracts bridgeAddress msg ID token amount proof' = (Success, contracts')"
+  assumes "bridgeMintedToken contracts bridgeAddress token = mintedToken"
+  shows "totalBalance (the (ERC20state contracts' mintedToken)) =
+         totalBalance (the (ERC20state contracts mintedToken)) + amount"
+proof-
+  define stateBridge where "stateBridge = the (bridgeState contracts bridgeAddress)"
+
+  have "callOriginalToMinted contracts (BridgeState.tokenPairs stateBridge) token = 
+        (Success, getMinted (the (tokenPairsState contracts (BridgeState.tokenPairs stateBridge))) token)" 
+    using assms callOriginalToMinted[of contracts "BridgeState.tokenPairs stateBridge" token]
+    unfolding callClaim_def claim_def stateBridge_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  then have "callOriginalToMinted contracts (BridgeState.tokenPairs stateBridge) token = 
+             (Success, mintedToken)"
+    using assms
+    unfolding bridgeMintedToken_def Let_def stateBridge_def
+    by simp
+  then show ?thesis
+    using assms
+    unfolding callClaim_def claim_def stateBridge_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+qed
+
 
 lemma callClaimCallLastState:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
