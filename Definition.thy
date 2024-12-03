@@ -308,9 +308,9 @@ definition getDeadStatus :: "Contracts \<Rightarrow> TokenDepositState \<Rightar
                  (status, False, state) 
           else if lastUpdateTime \<noteq> 0 \<and> lastUpdateTime < (timestamp block) - TIME_UNTIL_DEAD then 
                  let (status, lastState) = callLastState contracts (TokenDepositState.stateOracle state)
-                  in if status \<noteq> Success then
+                  in if status \<noteq> Success \<or> lastState = 0 then \<comment> \<open>or lastState = 0 is an additional check\<close>
                         (status, False, state)
-                     else 
+                     else
                         (Success, True, state \<lparr> deadState := lastState \<rparr>) 
               else
                   (Success, False, state)
