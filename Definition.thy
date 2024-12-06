@@ -349,6 +349,16 @@ definition hash3_inj where
 
 end
 
+(* NOTE: additional assumptions on the hashing functions that guarantee correctness *)
+locale StrongHash = Hash + 
+  assumes hash2_nonzero:
+    "\<And> x1 x2. hash2 x1 x2 \<noteq> 0"
+  assumes hash3_nonzero:
+    "\<And> x1 x2 x3. hash3 x1 x2 x3 \<noteq> 0"
+  assumes hash2_inj [simp]:
+    "hash2_inj"
+  assumes hash3_inj [simp]:
+    "hash3_inj"
 
 context Hash
 begin
@@ -417,7 +427,7 @@ definition setTokenDepositAddress :: "BridgeState \<Rightarrow> address \<Righta
 
 (* FIXME: For typing reasons we have separate deposit proofs and claim proofs.
    Once the low level storage layout is formalized this will be merged. *)
-locale ProofVerifier = Hash +
+locale ProofVerifier = 
   fixes generateStateRoot :: "Contracts \<Rightarrow> bytes32"
   \<comment> \<open>verifyDepositProof proofVerifierState tokenDepositAddress ID val stateRoot proof\<close> 
   fixes verifyDepositProof :: "unit \<Rightarrow> address \<Rightarrow> uint256  \<Rightarrow> bytes32 \<Rightarrow> bytes32 \<Rightarrow> bytes \<Rightarrow> bool"
@@ -516,6 +526,10 @@ definition callVerifyBalanceProof where
                   Fail ''proof verification failed''
                else
                   Success)"
+end
+
+locale HashProofVerifier = Hash + ProofVerifier
+begin
 
 definition claim :: "Contracts \<Rightarrow> Message \<Rightarrow> BridgeState \<Rightarrow> uint256 \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes \<Rightarrow> Status \<times> BridgeState \<times> Contracts" where
   "claim contracts msg state ID token amount proof =
@@ -628,6 +642,11 @@ definition callWithdrawWhileDead where
                     (Success, setTokenDepositState contracts' address state'))"
 
 end
+
+locale StrongHashProofVerifier = StrongHash + ProofVerifier
+
+sublocale StrongHashProofVerifier \<subseteq> HashProofVerifier
+  by unfold_locales
 
 \<comment> \<open>stateOracle address written in a token deposit\<close>
 abbreviation stateOracleAddressTD :: "Contracts \<Rightarrow> address \<Rightarrow> address" where

@@ -2,7 +2,7 @@ theory BridgeState
   imports Main Definition ERC20State TokenPairsState StateOracleState ProofVerifierState
 begin
 
-context ProofVerifier
+context HashProofVerifier
 begin
 
 section \<open>Bridge\<close>
