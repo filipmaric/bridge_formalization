@@ -2,9 +2,43 @@ theory Properties
   imports Reachability MoreList
 begin
 
-context StrongHashProofVerifier
+(* ------------------------------------------------------------------------------------ *)
+context HashProofVerifier
 begin
 
+text \<open>No deposit after the bridge dies\<close>
+theorem noDepositBridgeDead: 
+  assumes "bridgeDead contracts tokenDepositAddress"
+  assumes "reachableFrom contracts contracts' steps"
+  shows "fst (callDeposit contracts' tokenDepositAddress block msg ID token amount) \<noteq> Success"
+  using assms callDepositFailsInDeadState reachableFromBridgeDead
+  by blast
+
+(* ------------------------------------------------------------------------------------ *)
+text \<open>No cancel before the bridge dies\<close>
+lemma noCancelBeforeBridgeDead:
+  assumes "reachableFrom contractsInit contracts steps"
+          "\<not> bridgeDead contracts tokenDepositAddress"
+  shows "\<nexists> step. step \<in> set steps \<and> (\<exists> caller ID token amount proof. step = CANCEL tokenDepositAddress caller ID token amount proof)"
+  using assms
+proof (induction contractsInit contracts steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts' contractsInit contracts blockNum block step)
+  have notDead: "\<not> bridgeDead contracts tokenDepositAddress"
+    using reachableFrom.reachableFrom_step reachableFromBridgeDead reachableFrom_base reachableFrom_step.hyps(2) reachableFrom_step.prems
+    by blast
+  then show ?case
+    using reachableFrom_step callCancelDepositWhileDeadBridgeDead
+    by (metis executeStep.simps(4) set_ConsD)
+qed
+
+end
+
+context StrongHashProofVerifier
+begin
 
 (* ------------------------------------------------------------------------------------ *)
 text \<open>There are no double deposits\<close>
@@ -401,6 +435,13 @@ qed
 
 end
 
+(*
+   contractsInit
+   properSetup
+   getDeposit=0
+   lastStateB=0
+*)
+
 locale Init' = StrongHashProofVerifier + 
   fixes tokenDepositAddress :: address
   fixes bridgeAddress :: address
@@ -416,6 +457,13 @@ locale Init' = StrongHashProofVerifier +
   assumes lastStateBZero [simp]:
     "getLastStateB contractsInit bridgeAddress = 0"
 
+(*
+                  [stepsI]
+   contractsInit      \<rightarrow>*       contractsI
+   properSetup
+   getDeposit=0
+   lastStateB=0
+*)
 locale Init = Init' + 
   fixes contractsI :: Contracts
   fixes stepsInit :: "Step list"
@@ -715,24 +763,45 @@ definition tokenDeposits where
 definition depositedTokenAmount where
   "depositedTokenAmount address token steps = sum_list (map DEPOSIT_amount (tokenDeposits address token steps))"
 
-lemma depositedTokenAmountCons [simp]:
+lemma tokenDepositsConsDeposit [simp]:
+  shows "tokenDeposits tokenDepositAddress token (DEPOSIT tokenDepositAddress caller ID token amount # steps) =
+         DEPOSIT tokenDepositAddress caller ID token amount # tokenDeposits tokenDepositAddress token steps"
+  unfolding tokenDeposits_def
+  by simp
+
+lemma tokenDepositsConsDepositOther [simp]:
+  assumes "tokenDepositAddress \<noteq> tokenDepositAddress' \<or> token \<noteq> token'"
+  shows "tokenDeposits tokenDepositAddress token (DEPOSIT tokenDepositAddress' caller ID token' amount # steps) =
+         tokenDeposits tokenDepositAddress token steps"
+  using assms
+  unfolding tokenDeposits_def
+  by auto
+
+lemma tokenDepositsOther [simp]:
+  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+  shows "tokenDeposits tokenDepositAddress token (step # steps) = tokenDeposits tokenDepositAddress token steps"
+  using assms
+  by (cases step, auto simp add: tokenDeposits_def)
+
+lemma depositedTokenAmountConsDeposit [simp]:
   shows "depositedTokenAmount address token (DEPOSIT address caller ID token amount # steps) = 
          amount + depositedTokenAmount address token steps"
-  by (simp add: tokenDeposits_def depositedTokenAmount_def)
+  by (simp add: depositedTokenAmount_def)
 
-lemma depositedTokenAmountConsOther [simp]:
+lemma depositedTokenAmountConsDepositOther [simp]:
   assumes "address \<noteq> address' \<or> token \<noteq> token'"
   shows "depositedTokenAmount address token (DEPOSIT address' caller ID token' amount # steps) = 
          depositedTokenAmount address token steps"
   using assms
-  by (auto simp add: tokenDeposits_def depositedTokenAmount_def)
+  by (auto simp add: depositedTokenAmount_def)
 
-lemma depositedTokenAmoutConsNonDeposit [simp]:
+lemma depositedTokenAmoutConsOther [simp]:
   assumes "\<nexists> address' caller' ID' token' amount'. step = DEPOSIT address' caller' ID' token' amount'"
   shows "depositedTokenAmount address token (step # steps) = depositedTokenAmount address token steps"
   using assms 
-  unfolding depositedTokenAmount_def tokenDeposits_def
+  unfolding depositedTokenAmount_def
   by (cases step, auto)
+
 
 fun isTokenClaim where
   "isTokenClaim address token (CLAIM address' caller ID token' amount proof) \<longleftrightarrow> address' = address \<and> token' = token"
@@ -748,7 +817,19 @@ definition claimedTokenAmount where
   "claimedTokenAmount address token steps = 
    sum_list (map CLAIM_amount (tokenClaims address token steps))"
 
-lemma claimedTokenAmoutConsNonClaim [simp]:
+lemma claimedTokenAmoutConsClaim [simp]:
+  shows "claimedTokenAmount address token (CLAIM address caller ID token amount proof # steps) = claimedTokenAmount address token steps + amount"
+  unfolding claimedTokenAmount_def tokenClaims_def
+  by auto
+
+lemma claimedTokenAmoutConsClaimOther [simp]:
+  assumes "address' \<noteq> address \<or> token' \<noteq> token"
+  shows "claimedTokenAmount address token (CLAIM address' caller ID token' amount proof # steps) = claimedTokenAmount address token steps"
+  using assms
+  unfolding claimedTokenAmount_def tokenClaims_def
+  by auto
+
+lemma claimedTokenAmoutConsOther [simp]:
   assumes "\<nexists> address' caller' ID' token' amount' proof'. step = CLAIM address' caller' ID' token' amount' proof'"
   shows "claimedTokenAmount address token (step # steps) = claimedTokenAmount address token steps"
   using assms 
@@ -773,7 +854,7 @@ definition claimedTokenDepositsAmount where
   "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token steps = 
    sum_list (map DEPOSIT_amount (claimedTokenDeposits tokenDepositAddress bridgeAddress token steps))"
 
-lemma claimedDepositsAmountOther: 
+lemma claimedTokenDepositsAmountConsOther: 
   assumes "\<nexists> caller ID amount. step = DEPOSIT tokenDepositAddress caller ID token amount"
   assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM bridgeAddress caller' ID' token amount' proof'"
   shows "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token (step # steps) =
@@ -807,7 +888,7 @@ getDeposit=0
 lastState=0
 *)
 
-lemma claimedTokenDepositsAmountsClaim:
+lemma claimedTokenDepositsAmountConsClaim:
   assumes "reachableFrom contractsI contractsClaim [CLAIM bridgeAddress caller ID token amount proof]"
   shows   "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token
              (CLAIM bridgeAddress caller ID token amount proof # stepsInit) = 
@@ -942,6 +1023,67 @@ proof-
     by simp
 qed
 
+lemma noClaimBeforeDeposit:
+  assumes CLAIM_in_steps: "CLAIM bridgeAddress caller' ID token amount' proof' \<in> set stepsInit"
+  assumes reach: "reachableFrom contractsInit contractsDeposit (DEPOSIT tokenDepositAddress caller ID token amount # stepsInit)"
+  shows "False"
+proof-
+  define DEPOSIT_step where "DEPOSIT_step = DEPOSIT tokenDepositAddress caller ID token amount"
+  define CLAIM_step where "CLAIM_step = CLAIM bridgeAddress caller' ID token amount' proof'"
+  have CLAIM_in_steps: "CLAIM_step \<in> set (DEPOSIT_step # stepsInit)"
+    using CLAIM_in_steps
+    unfolding CLAIM_step_def
+    by simp
+  obtain steps1 steps2 c1 c2 blockNum block where *:
+    "reachableFrom contractsInit c1 steps2"
+    "executeStep c1 blockNum block CLAIM_step = (Success, c2)"
+    "reachableFrom c2 contractsDeposit steps1"
+    "DEPOSIT_step # stepsInit = steps1 @ [CLAIM_step] @ steps2"
+    using reachableFromStepInSteps reach CLAIM_in_steps
+    unfolding DEPOSIT_step_def
+    by metis
+
+  define DEPOSIT_step' where "DEPOSIT_step' = DEPOSIT tokenDepositAddress (sender (message caller' amount')) ID token amount'"
+
+  interpret Init': Init
+    by unfold_locales
+
+  interpret InitFirstUpdate': InitFirstUpdate where contractsI=c1 and stepsInit=steps2
+  proof
+    show "reachableFrom contractsInit c1 steps2" by fact
+   next
+    show "updatesNonZero steps2"
+      by (metis "*"(4) Cons_eq_append_conv add_cancel_right_right list.size(4) nat.simps(3) updatesNonZeroAppend(2) updatesNonZeroInit)
+  next
+    show "steps2 \<noteq> [] \<and> last steps2 = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+      by (metis "*"(4) CLAIM_step_def Nil_is_append_conv Step.distinct(10) firstUpdate last.simps last_append not_Cons_self)
+  qed
+
+  have "DEPOSIT_step' \<in> set steps2"
+    using * InitFirstUpdate'.depositBeforeClaim
+    unfolding CLAIM_step_def DEPOSIT_step'_def
+   by fastforce
+
+  moreover
+
+  obtain steps1' where "steps1 = DEPOSIT_step # steps1'"
+    using *(4)
+    unfolding DEPOSIT_step_def CLAIM_step_def
+    by (metis Cons_eq_append_conv Step.simps(6) list.sel(1))
+
+  ultimately
+
+  have "DEPOSIT_step' \<in> set stepsInit"
+    using *(4)
+    by auto
+  then obtain d1 d2 where "DEPOSIT_step # stepsInit = [] @ [DEPOSIT_step] @ d1 @ [DEPOSIT_step'] @ d2"
+    by (metis append.left_neutral append_Cons split_list_first)
+  then show False
+    using DEPOSITNoDouble reach
+    unfolding DEPOSIT_step_def DEPOSIT_step'_def
+     by blast
+qed
+
 (*
                 steps               DEPOSIT
 contractsInit    \<rightarrow>*     contractsI    \<rightarrow>   contractsDeposit
@@ -949,7 +1091,7 @@ properSetup
 getDeposit=0
 lastState=0
 *)
-lemma claimedTokenDepositsAmountDeposit:
+lemma claimedTokenDepositsAmountConsDeposit:
   assumes "reachableFrom contractsI contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
   shows "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token
             (DEPOSIT tokenDepositAddress caller ID token amount # stepsInit) =
@@ -968,64 +1110,14 @@ proof-
 
     have reach: "reachableFrom contractsInit contractsDeposit (DEPOSIT_step # stepsInit)"
       by (metis DEPOSIT_step_def assms reachableFromInitI reachableFromSingleton reachableFrom_step)
+    then have "\<nexists> caller' amount' proof'. CLAIM bridgeAddress caller' ID token amount' proof' \<in> set stepsInit"
+      using noClaimBeforeDeposit
+      unfolding DEPOSIT_step_def
+      by blast
 
-    have "\<nexists> caller' amount' proof'. CLAIM bridgeAddress caller' ID token amount' proof' \<in> set stepsInit"
-    proof (rule ccontr)
-      assume "\<not> ?thesis"
-      then obtain caller' amount' proof' where CLAIM_in_steps: "CLAIM bridgeAddress caller' ID token amount' proof' \<in> set stepsInit"
-        by auto
-      define CLAIM_step where "CLAIM_step = CLAIM bridgeAddress caller' ID token amount' proof'"
-      have CLAIM_in_steps: "CLAIM_step \<in> set (DEPOSIT_step # stepsInit)"
-        using CLAIM_in_steps
-        unfolding CLAIM_step_def
-        by simp
-      obtain steps1 steps2 c1 c2 blockNum block where *:
-        "reachableFrom contractsInit c1 steps2"
-        "executeStep c1 blockNum block CLAIM_step = (Success, c2)"
-        "reachableFrom c2 contractsDeposit steps1"
-        "DEPOSIT_step # stepsInit = steps1 @ [CLAIM_step] @ steps2"
-        using reachableFromStepInSteps[OF reach CLAIM_in_steps]
-        unfolding DEPOSIT_step_def
-        by metis
-
-      define DEPOSIT_step' where "DEPOSIT_step' = DEPOSIT tokenDepositAddress (sender (message caller' amount')) ID token amount'"
-
-      interpret Init': Init
-        by unfold_locales
-
-      interpret InitFirstUpdate': InitFirstUpdate where contractsI=c1 and stepsInit=steps2
-      proof
-        show "reachableFrom contractsInit c1 steps2" by fact
-      next
-        show "updatesNonZero steps2"
-          by (metis "*"(4) Cons_eq_append_conv add_cancel_right_right list.size(4) nat.simps(3) updatesNonZeroAppend(2) updatesNonZeroInit)
-      next
-        show "steps2 \<noteq> [] \<and> last steps2 = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-          by (metis "*"(4) CLAIM_step_def Nil_is_append_conv Step.distinct(10) firstUpdate last.simps last_append not_Cons_self)
-      qed
-
-      have "DEPOSIT_step' \<in> set steps2"
-       using * InitFirstUpdate'.depositBeforeClaim
-       unfolding CLAIM_step_def DEPOSIT_step'_def
-       by fastforce
-
-      moreover
-      obtain steps1' where "steps1 = DEPOSIT_step # steps1'"
-        using *(4)
-        unfolding DEPOSIT_step_def CLAIM_step_def
-        by (metis Cons_eq_append_conv Step.simps(6) list.sel(1))
-      ultimately
-      have "DEPOSIT_step' \<in> set stepsInit"
-        using *(4)
-        by auto
-      then obtain d1 d2 where "DEPOSIT_step # stepsInit = [] @ [DEPOSIT_step] @ d1 @ [DEPOSIT_step'] @ d2"
-        by (metis append.left_neutral append_Cons split_list_first)
-      then show False
-        using DEPOSITNoDouble reach
-        unfolding DEPOSIT_step_def DEPOSIT_step'_def
-        by blast
-    qed
-    ultimately show ?thesis
+    ultimately
+    
+    show ?thesis
       unfolding claimedTokenDeposits_def
       using DEPOSIT_id.simps DEPOSIT_step_def isClaimedID_def
       by auto
@@ -1146,7 +1238,7 @@ next
         moreover 
         have "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token steps =
               claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token (DEPOSIT address' caller ID token' amount # steps)"
-          using claimedDepositsAmountOther False
+          using claimedTokenDepositsAmountConsOther False
           using False
           by auto
         ultimately show ?thesis
@@ -1156,7 +1248,7 @@ next
         case True
         have "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token (step # steps) = 
               claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token steps"
-          using InitFirstUpdate'.claimedTokenDepositsAmountDeposit
+          using InitFirstUpdate'.claimedTokenDepositsAmountConsDeposit
           using DEPOSIT True reachableFrom.reachableFrom_step reachableFrom_base reachableFrom_step.hyps(2) 
           by blast
         then show ?thesis
@@ -1189,7 +1281,7 @@ next
         have "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token
                   (CLAIM bridgeAddress caller ID token amount proof' # steps) =
               claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token steps + amount"
-        proof (rule InitFirstUpdate'.claimedTokenDepositsAmountsClaim)
+        proof (rule InitFirstUpdate'.claimedTokenDepositsAmountConsClaim)
           show "reachableFrom contractsI' contractsI [CLAIM bridgeAddress caller ID token amount proof']"
             using CLAIM True reachableFrom.reachableFrom_step reachableFrom_base reachableFrom_step.hyps(2) by blast
         qed
@@ -1208,13 +1300,13 @@ next
           by (metis executeStep.simps(2) reachableFromBridgeMintedToken InitFirstUpdate'.reachableFromInitI reachableFrom_step.hyps(2))
         then show ?thesis
           using False CLAIM reachableFrom_step *
-          by (auto simp add: claimedDepositsAmountOther)
+          by (auto simp add: claimedTokenDepositsAmountConsOther)
       qed
     next
       case (UPDATE address' stateRoot')
       then show ?thesis
         using reachableFrom_step *
-        using claimedDepositsAmountOther
+        using claimedTokenDepositsAmountConsOther
         by simp
     next
       case (CANCEL address' caller' ID' token' amount' proof')
@@ -1224,7 +1316,7 @@ next
         using CANCEL reachableFrom_step.hyps(2) by auto
       then show ?thesis
         using CANCEL reachableFrom_step *
-        using claimedDepositsAmountOther
+        using claimedTokenDepositsAmountConsOther
         by simp
     next
       case (WITHDRAW address' caller token' amount proof')
@@ -1235,7 +1327,7 @@ next
       moreover
       have "claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token (step # steps) = 
             claimedTokenDepositsAmount tokenDepositAddress bridgeAddress token steps"
-        using claimedDepositsAmountOther WITHDRAW
+        using claimedTokenDepositsAmountConsOther WITHDRAW
         by simp
       ultimately
       show ?thesis
@@ -1250,7 +1342,7 @@ end
 context HashProofVerifier
 begin
 
-lemma
+lemma balanceOfTokenDepositContractBridgeNotDead:
   assumes "reachableFrom contractsInit contracts steps"
   assumes "\<not> bridgeDead contracts tokenDepositAddress"
   shows "balanceOf (the (ERC20state contracts token)) tokenDepositAddress = 
@@ -1282,7 +1374,7 @@ next
       case False
       then show ?thesis
         using reachableFrom_step DEPOSIT \<open>caller \<noteq> tokenDepositAddress\<close>
-        using callDepositBalanceOfOther notDead callDepositOtherToken depositedTokenAmountConsOther 
+        using callDepositBalanceOfOther notDead callDepositOtherToken depositedTokenAmountConsDepositOther 
         by (metis executeStep.simps(1) senderMessage)
     next
       case True
@@ -1331,7 +1423,7 @@ next
         case False
         then show ?thesis
           using WITHDRAW reachableFrom_step.hyps *
-          by (metis Step.simps(12) callWithdrawWhileDeadOtherToken depositedTokenAmoutConsNonDeposit executeStep.simps(5))
+          by (metis Step.simps(12) callWithdrawWhileDeadOtherToken depositedTokenAmoutConsOther executeStep.simps(5))
       qed
     qed
   next
@@ -1353,26 +1445,13 @@ next
       then show ?thesis
         using callCancelDepositWhileDead_balanceOfOther callCancelDepositOtherToken 
         using False CANCEL reachableFrom_step notDead
-        by (metis Message.select_convs(1) Step.simps(10) depositedTokenAmoutConsNonDeposit executeStep.simps(4) message_def)
+        by (metis Message.select_convs(1) Step.simps(10) depositedTokenAmoutConsOther executeStep.simps(4) message_def)
     qed
   qed
 qed
 
 end
 
-(* ------------------------------------------------------------------------------------ *)
-context HashProofVerifier
-begin
-
-text \<open>No deposit after the bridge dies\<close>
-theorem noDepositBridgeDead: 
-  assumes "bridgeDead contracts tokenDepositAddress"
-  assumes "reachableFrom contracts contracts' steps"
-  shows "fst (callDeposit contracts' tokenDepositAddress block msg ID token amount) \<noteq> Success"
-  using assms callDepositFailsInDeadState reachableFromBridgeDead
-  by blast
-
-end
 
 (*
                [stepsInit]                  update                  [stepsNoUpdate]               stepDeath               stepsBD
@@ -1425,6 +1504,7 @@ locale BridgeDead = StrongHashProofVerifier +
   assumes stateRootNonZero:
     "stateRoot \<noteq> 0"
 begin
+
 lemma properSetupLastUpdate' [simp]:
   shows "properSetup contractsLastUpdate' tokenDepositAddress bridgeAddress"
   using properSetupReachable properSetupInit reachableFromInitLastUpdate'
@@ -1456,15 +1536,22 @@ qed simp_all
 context BridgeDead
 begin
 
+definition stepsAllBD where
+  "stepsAllBD = stepsBD @ [stepDeath] @ stepsNoUpdate @ [UPDATE_step] @ stepsInit"
+
+definition stepsBeforeDeath where
+  "stepsBeforeDeath = stepsNoUpdate @ [UPDATE_step] @ stepsInit"
+
 lemma reachableFromInitDead' [simp]: 
-  shows "reachableFrom contractsInit contractsDead' (stepsNoUpdate @ [UPDATE_step] @ stepsInit)"
+  shows "reachableFrom contractsInit contractsDead' stepsBeforeDeath"
+  unfolding stepsBeforeDeath_def
   using reachableFromInitLastUpdate' reachableFromLastUpdate'LastUpdate reachableFromLastUpdateDead reachableFromTrans
   by presburger
 
 lemma reachableFromInitBD [simp]: 
-  shows "reachableFrom contractsInit contractsBD (stepsBD @ [stepDeath] @ stepsNoUpdate @ [UPDATE_step] @ stepsInit)"
-  using reachableFromContractsBD deathStep reachableFromInitDead' reachableFromTrans
-  by blast
+  shows "reachableFrom contractsInit contractsBD stepsAllBD"
+  using deathStep reachableFromContractsBD reachableFromInitDead' reachableFromTrans stepsAllBD_def stepsBeforeDeath_def
+  by (smt (verit, best))
 
 lemma properSetupDead [simp]:
   shows "properSetup contractsDead tokenDepositAddress bridgeAddress"
@@ -1668,14 +1755,14 @@ lemma canceledTokenAmountCancel [simp]:
   unfolding canceledTokenAmount_def tokenCancels_def
   by auto
 
-lemma canceledAmountConsNonCancel [simp]:
+lemma canceledTokenAmountConsOther [simp]:
   assumes "\<nexists> address' caller' ID' token' amount' proof'. step = CANCEL address' caller' ID' token' amount' proof'"
   shows "canceledTokenAmount address token (step # steps) = canceledTokenAmount address token steps"
   using assms 
   unfolding canceledTokenAmount_def tokenCancels_def
   by (cases step, auto)
 
-lemma canceledTokenAmountConsOther [simp]:
+lemma canceledTokenAmountConsCancelOther [simp]:
   assumes "address \<noteq> address' \<or> token \<noteq> token'"
   shows "canceledTokenAmount address token (CANCEL address' caller' ID' token' amount' proof' # steps) = 
          canceledTokenAmount address token steps"
@@ -1683,10 +1770,24 @@ lemma canceledTokenAmountConsOther [simp]:
   unfolding canceledTokenAmount_def tokenCancels_def
   by auto
 
+
+lemma canceledTokenAmountBridgeNotDead:
+  assumes "reachableFrom contractsInit contracts steps"
+          "\<not> bridgeDead contracts tokenDepositAddress"
+    shows "canceledTokenAmount tokenDepositAddress token steps = 0"
+  using assms noCancelBeforeBridgeDead[OF assms]
+  unfolding canceledTokenAmount_def tokenCancels_def
+  by (metis filter_False isTokenCancel.elims(2) list.simps(8) sum_list.Nil)
+
+
 definition nonClaimedBeforeDeathTokenDeposits where
   "nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps =
      filter (\<lambda> step. \<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsBefore) 
             (tokenDeposits tokenDepositAddress token steps)"
+
+definition nonClaimedBeforeDeathTokenDepositsAmount where
+  "nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
+    sum_list (map DEPOSIT_amount (nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps))"
 
 definition isCanceledID where
   "isCanceledID tokenDepositAddress token ID steps \<longleftrightarrow> 
@@ -1698,6 +1799,40 @@ definition nonCanceledNonClaimedBeforeDeathTokenDeposits where
                      \<not> isCanceledID tokenDepositAddress token (DEPOSIT_id step) steps)
             (tokenDeposits tokenDepositAddress token steps)"
 
+definition nonCanceledNonClaimedBeforeDeathTokenDepositsAmount where
+  "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
+    sum_list (map DEPOSIT_amount (nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps))"
+
+lemma nonClaimedTokenDepositsBeforeDeathConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+  shows "nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
+         nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps"
+  using assms
+  unfolding nonClaimedBeforeDeathTokenDeposits_def
+  by (cases step, auto)
+
+lemma nonClaimedBeforeDeathTokenDepositsAmountConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+  shows "nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
+         nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
+  by (simp add: assms nonClaimedBeforeDeathTokenDepositsAmount_def)
+
+lemma nonCanceledNonClaimedBeforeDeathTokenDepositsConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+  assumes "\<nexists> caller' ID' amount' proof'. step = CANCEL tokenDepositAddress caller' ID' token amount' proof'"
+  shows "nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
+         nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps"
+  using assms
+  unfolding nonCanceledNonClaimedBeforeDeathTokenDeposits_def tokenDeposits_def
+  by (smt (verit, ccfv_SIG) filter.simps(2) filter_cong isCanceledID_def isTokenDeposit.elims(2) list.set_intros(2) set_ConsD)
+
+lemma nonCanceledNonClaimedBeforeDeathTokenDepositsAmountConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+  assumes "\<nexists> caller' ID' amount' proof'. step = CANCEL tokenDepositAddress caller' ID' token amount' proof'"
+  shows "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
+         nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
+  by (simp add: assms nonCanceledNonClaimedBeforeDeathTokenDepositsAmount_def)
+
 definition tokenWithdrawals where
   "tokenWithdrawals address token steps = filter (\<lambda> step. case step of WITHDRAW address' caller token' amount proof \<Rightarrow> address = address' \<and> token = token' | _ \<Rightarrow> False) steps"
 
@@ -1705,7 +1840,7 @@ definition tokenWithdrawnAmount where
   "tokenWithdrawnAmount address token steps = 
    sum_list (map WITHDRAW_amount (tokenWithdrawals address token steps))"
 
-lemma tokenWithdrawnAmoutConsNonWithdraw [simp]:
+lemma tokenWithdrawnAmoutConsOther [simp]:
   assumes "\<nexists> address' caller' token' amount' proof'. step = WITHDRAW address' caller' token' amount' proof'"
   shows "tokenWithdrawnAmount address token (step # steps) = tokenWithdrawnAmount address token steps"
   using assms 
@@ -1714,6 +1849,186 @@ lemma tokenWithdrawnAmoutConsNonWithdraw [simp]:
 
 end
 
+context StrongHashProofVerifier
+begin
+
+lemma nonCanceledNonClaimedBridgeNotDead:
+  assumes "reachableFrom contractsInit contracts steps"
+          "\<not> bridgeDead contracts tokenDepositAddress"
+    shows "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
+           nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
+  using assms noCancelBeforeBridgeDead[OF assms]
+  unfolding nonCanceledNonClaimedBeforeDeathTokenDepositsAmount_def nonClaimedBeforeDeathTokenDepositsAmount_def
+  unfolding nonCanceledNonClaimedBeforeDeathTokenDeposits_def nonClaimedBeforeDeathTokenDeposits_def isCanceledID_def
+  by metis
+
+end
+
+(*
+               [stepsInit]                  update                  [stepsNoUpdate]               stepDeath               stepsBD
+   contractsInit  \<rightarrow>*   contractsLastUpdate'  \<rightarrow>  contractsLastUpdate       \<rightarrow>*     contractsDead'     \<rightarrow>    contractsDead   \<rightarrow>*  contractsBD
+   properSetup
+
+                  [stepsI]
+   contractsInit      \<rightarrow>*       contractsI
+   properSetup
+   getDeposit=0
+   lastStateB=0
+*)
+
+
+locale BridgeDeadInitFirstUpdate = BridgeDead + InitFirstUpdate where contractsI=contractsDead' and stepsInit=stepsBeforeDeath + Init
+begin
+
+interpretation InitBD: Init where contractsI=contractsBD and stepsInit=stepsAllBD
+ by (simp add: Init'_axioms Init_axioms_def Init_def)
+
+lemma nonCanceledNonClaimedBeforeDeathTokenDepositsConsCancel:
+  assumes "reachableFrom contractsBD contractsCancel [CANCEL tokenDepositAddress caller ID token amount proof]"
+  shows "\<exists> steps1 steps2.
+           nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD = 
+           steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2 \<and>
+           nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit (CANCEL tokenDepositAddress caller ID token amount proof # stepsAllBD) = 
+           steps1 @ steps2"
+proof-
+  define CANCEL_step where "CANCEL_step = CANCEL tokenDepositAddress caller ID token amount proof"
+  define DEPOSIT_step where "DEPOSIT_step = DEPOSIT tokenDepositAddress (sender (message caller 0)) ID token amount"
+  define P where "P = (\<lambda>step.
+         \<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit \<and>
+         \<not> isCanceledID tokenDepositAddress token (DEPOSIT_id step) stepsAllBD)"
+  define P' where "P' = (\<lambda>step.
+         \<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit \<and>
+         \<not> isCanceledID tokenDepositAddress token (DEPOSIT_id step) (CANCEL_step # stepsAllBD))"
+  define Q where "Q = (\<lambda> step. isTokenDeposit tokenDepositAddress token step)"
+  define depositsAll where "depositsAll = tokenDeposits tokenDepositAddress token stepsAllBD"
+  define non where "non = nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+  define nonCancel where "nonCancel = nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit (CANCEL_step # stepsAllBD)"
+
+  obtain block "proof" where 
+    cancel: "callCancelDepositWhileDead contractsBD tokenDepositAddress (message caller 0) block ID token amount proof =
+    (Success, contractsCancel)"
+    using assms
+    by (metis executeStep.simps(4) reachableFromSingleton)
+
+  then have "DEPOSIT_step \<in> set stepsAllBD"
+    unfolding DEPOSIT_step_def
+    by  (rule InitBD.cancelDepositOnlyAfterDeposit)
+  then obtain steps1 steps2 where steps: "stepsAllBD = steps1 @ [DEPOSIT_step] @ steps2"
+    by (metis append_Cons append_self_conv2 split_list)
+  then have "DEPOSIT_step \<in> set (tokenDeposits tokenDepositAddress token stepsAllBD)"
+    unfolding tokenDeposits_def DEPOSIT_step_def
+    by auto
+
+  moreover
+
+  have "\<nexists> caller' token' amount' proof'. CLAIM bridgeAddress caller' ID token' amount' proof' \<in> set stepsInit"
+    using cancel
+    by (rule cancelDepositWhileDeadNoClaim)
+
+  moreover
+
+  (* FIXME: separate lemma *)
+  have noCancel: "\<nexists> caller' amount' proof'. 
+          CANCEL tokenDepositAddress caller' ID token amount' proof' \<in> set stepsAllBD"
+  proof (rule ccontr)
+    assume "\<not> ?thesis"
+    then obtain steps1' steps2' caller' amount' proof' where 
+    "stepsAllBD = steps1' @ [CANCEL tokenDepositAddress caller' ID token amount' proof'] @ steps2'"
+      by (metis append.left_neutral append_Cons split_list_first)
+    then obtain contracts' contracts'' block where 
+       "reachableFrom contractsInit contracts' steps2'"
+       "callCancelDepositWhileDead contracts' tokenDepositAddress (message caller' 0) block ID token amount' proof' = (Success, contracts'')"
+       "reachableFrom contracts'' contractsBD steps1'"
+      by (metis executeStep.simps(4) reachableFromAppend reachableFromInitBD reachableFromSingleton)
+    then show False
+      using callCancelNoDouble cancel
+      by (metis fst_conv)
+  qed
+
+  ultimately
+
+  have "DEPOSIT_step \<in> set non"
+    unfolding non_def
+    unfolding nonCanceledNonClaimedBeforeDeathTokenDeposits_def DEPOSIT_step_def isClaimedID_def isCanceledID_def
+    by auto
+  have *: "\<forall> step \<in> set (steps1 @ steps2). (\<forall> caller' amount' ID'. step = DEPOSIT tokenDepositAddress caller' ID' token amount' \<longrightarrow> ID' \<noteq> ID)"
+    using steps DEPOSITNoDouble' reachableFromInitBD 
+    unfolding DEPOSIT_step_def
+    by blast
+  then have "DEPOSIT_step \<notin> set (steps1 @ steps2)"
+    unfolding DEPOSIT_step_def
+    by auto
+
+  have depositsAll: "depositsAll = (filter Q steps1) @ [DEPOSIT_step] @ (filter Q steps2)"
+    using steps
+    unfolding depositsAll_def tokenDeposits_def Q_def DEPOSIT_step_def
+    by auto
+
+
+  define c1 where "c1 = filter P' (filter Q steps1)" 
+  define c2 where "c2 = filter P' (filter Q steps2)" 
+
+  have "\<not> P' DEPOSIT_step"
+    unfolding P'_def DEPOSIT_step_def CANCEL_step_def
+    by (auto simp add: isCanceledID_def)
+  then have nonCancel:
+    "nonCancel = c1 @ c2"
+    using depositsAll \<open>\<not> P' DEPOSIT_step\<close>
+    unfolding nonCancel_def c1_def c2_def depositsAll_def nonCanceledNonClaimedBeforeDeathTokenDeposits_def P'_def
+    by (simp add: CANCEL_step_def)
+
+  have "DEPOSIT_step \<notin> set (c1 @ c2)"
+    using \<open>DEPOSIT_step \<notin> set (steps1 @ steps2)\<close>
+    unfolding c1_def c2_def
+    by auto
+
+  have "\<And> steps. set steps \<subseteq> set steps1 \<union> set steps2 \<Longrightarrow> filter P (filter Q steps) = filter P' (filter Q steps)"
+  proof (rule filter_cong)
+    fix steps step
+    assume "set steps \<subseteq> set steps1 \<union> set steps2" "step \<in> set (filter Q steps)"
+    then obtain caller' ID' amount' where "step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
+      unfolding Q_def
+      by (smt (verit, best) isTokenDeposit.elims(2) mem_Collect_eq set_filter)
+    then show "P step \<longleftrightarrow> P' step"
+      using * \<open>set steps \<subseteq> set steps1 \<union> set steps2\<close> \<open>step \<in> set (filter Q steps)\<close>
+      unfolding P_def P'_def CANCEL_step_def
+      by (auto simp add: isCanceledID_def)
+  qed simp
+  then have "non = c1 @ filter P [DEPOSIT_step] @ c2"
+    unfolding non_def nonCanceledNonClaimedBeforeDeathTokenDeposits_def P_def c1_def c2_def
+    using depositsAll depositsAll_def
+    by auto
+  then have non: "non = c1 @ [DEPOSIT_step] @ c2"
+    using \<open>DEPOSIT_step \<in> set non\<close> \<open>DEPOSIT_step \<notin> set (c1 @ c2)\<close>
+    by (metis append.assoc append.right_neutral filter.simps(1) filter.simps(2))
+
+  show ?thesis
+    using nonCancel non
+    using CANCEL_step_def DEPOSIT_step_def nonCancel_def non_def 
+    by auto
+qed
+
+lemma nonCanceledNonClaimedBeforeDeathTokenDepositsAmountCancel:
+  assumes "reachableFrom contractsBD contractsCancel [CANCEL tokenDepositAddress caller ID token amount proof]"
+  shows "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit (CANCEL tokenDepositAddress caller ID token amount proof # stepsAllBD) =
+         nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD - amount"
+        "amount \<le> nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+  using nonCanceledNonClaimedBeforeDeathTokenDepositsConsCancel[OF assms]
+  unfolding nonCanceledNonClaimedBeforeDeathTokenDepositsAmount_def
+  by auto
+
+lemma nonClaimedTokenDepositsBeforeDeathAmountDeposit [simp]:
+  shows "\<not> reachableFrom contractsBD contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
+proof
+  assume "reachableFrom contractsBD contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
+  moreover
+  have "bridgeDead contractsBD tokenDepositAddress"
+    using bridgeDeadContractsBD by blast
+  ultimately show False
+    by (metis callDepositFailsInDeadState executeStep.simps(1) fst_conv reachableFromSingleton)
+qed
+
+end
 
 (**************************************************************************************************)
 section \<open>Liveness\<close>
@@ -1870,256 +2185,12 @@ qed
 end
 
 
-(*
-
-(* ------------------------------------------------------------------------------------ *)
 
 
-context ProofVerifier
+context StrongHashProofVerifier
 begin
 
-(* ----------------------------------------------------------------------------------------- *)
-
-
-(* ------------------------------------------------------------------- *)
-
-
-lemma nonClaimedBeforeDeathTokenDepositsDeposit:
-  assumes "reachableFrom contractsInit contracts (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore)"
-  shows "nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore) =
-         (DEPOSIT tokenDepositAddress caller ID token amount) # nonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
-  using assms
-  unfolding nonClaimedBeforeDeathTokenDeposits_def
-  apply (auto simp add: tokenDeposits_def)
-  sorry
-
-lemma nonCanceledNonClaimedTokenDepositsBeforeDeathDeposit:
-  assumes "reachableFrom contractsInit contracts (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore)"
-  shows "nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore) =
-         (DEPOSIT tokenDepositAddress caller ID token amount) # nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
-  using assms
-  unfolding nonCanceledNonClaimedBeforeDeathTokenDeposits_def
-  apply (auto simp add: tokenDeposits_def)
-  sorry
-
-
-lemma nonCanceledNonClaimedBeforeDeathTokenDepositsCancel:
-  assumes "reachableFrom contractsInit contracts stepsBefore"
-  \<comment> \<open>The last update that happened when the bridge was still alive\<close>
-  assumes update:
-          "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contractsInit bridgeAddress))
-            in callUpdate contracts stateOracleAddress block blockNum stateRoot = (Success, contracts')"
-  assumes "stateRoot \<noteq> 0" (* NOTE: additional assumption *)
-  assumes "\<not> (bridgeDead contracts tokenDepositAddress)"
-  \<comment> \<open>There were no updates since then\<close>
-  assumes "reachableFrom contracts' contracts'' steps'"
-  assumes noUpdate: "let stateOracleAddress = BridgeState.stateOracle (the (bridgeState contractsInit bridgeAddress))
-            in \<nexists> stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps'"
-  \<comment> \<open>Bridge was dead\<close>
-  assumes "\<not> (bridgeDead contracts'' tokenDepositAddress)"
-  assumes "stepsF = [CANCEL tokenDepositAddress caller ID token amount proof] @ steps'' @ steps' @ [UPDATE tokenDepositAddress stateRoot] @ stepsBefore"
-  shows "\<exists> steps1 steps2.
-           nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore) = 
-           steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2 \<and>
-           nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (CANCEL tokenDepositAddress caller ID token amount proof # steps @ stepsBefore) = 
-           steps1 @ steps2"
-proof-
-  define CANCEL_step where "CANCEL_step = CANCEL tokenDepositAddress caller ID token amount proof"
-  define DEPOSIT_step where "DEPOSIT_step = DEPOSIT tokenDepositAddress (sender (message caller 0)) ID token amount"
-
-  obtain contracts' block where 
-     "reachableFrom contractsInit contracts' (steps @ stepsBefore)" 
-     "callCancelDepositWhileDead contracts' tokenDepositAddress (message caller 0) block ID token amount proof = (Success, contracts)"
-    using reachableFromCons'[OF assms(1)]
-    by auto
-
-  then obtain contractsLast where
-    "reachableFrom contractsInit contractsLast stepsBefore"
-    "reachableFrom contractsLast contracts' steps"
-    using reachableFromAppend by blast
-
-  have "DEPOSIT_step \<in> set (steps @ stepsBefore)"
-    unfolding DEPOSIT_step_def
-  proof (rule cancelDepositOnlyAfterDeposit)
-    show "callCancelDepositWhileDead contracts' tokenDepositAddress (message caller 0) block ID token amount proof = (Success, contracts)"
-      by fact
-  next
-    show "reachableFrom contractsInit contracts' (steps @ stepsBefore)"
-      by fact
-  next
-    show "properSetup contractsInit tokenDepositAddress bridgeAddress"
-      by fact
-  next
-    show "getDeposit (the (tokenDepositState contractsInit tokenDepositAddress)) ID = 0"
-      sorry
-  next
-    show "hash3 (sender (message caller 0)) token amount \<noteq> 0"
-      sorry
-  next
-    show "hash3_inj"
-      sorry
-  qed
-  then obtain steps1 steps2 where steps: "steps @ stepsBefore = steps1 @ [DEPOSIT_step] @ steps2"
-    by (metis append_Cons append_self_conv2 split_list)
-  then have "DEPOSIT_step \<in> set (tokenDeposits tokenDepositAddress token (steps @ stepsBefore))"
-    unfolding tokenDeposits_def DEPOSIT_step_def
-    by auto
-
-  moreover
-
-  have "\<nexists> caller' token' amount' proof'. CLAIM bridgeAddress caller' ID token' amount' proof' \<in> set stepsBefore"
-  proof (rule cancelDepositNoClaim)
-    show "callCancelDepositWhileDead contracts' tokenDepositAddress (message caller 0) block ID token amount proof = (Success, contracts)"
-      by fact
-  next
-    show "reachableFrom contractsInit contractsLast stepsBefore"
-      by fact
-  next
-    show "properSetup contractsInit tokenDepositAddress bridgeAddress"
-      by fact
-  next
-  qed
-
-  moreover
-  have "\<nexists> caller' amount' proof'. 
-          CANCEL tokenDepositAddress caller' ID token amount' proof' \<in> set (steps @ stepsBefore)"
-    sorry
-
-  ultimately
-
-  have "DEPOSIT_step \<in> set (nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore))"
-    unfolding nonCanceledNonClaimedBeforeDeathTokenDeposits_def DEPOSIT_step_def isClaimedID_def isCanceledID_def
-    by auto
-
-  have *: "\<forall> step \<in> set (steps1 @ steps2). (\<forall> caller' amount' ID'. step = DEPOSIT tokenDepositAddress caller' ID' token amount' \<longrightarrow> ID' \<noteq> ID)"
-  proof safe
-    fix caller' amount' proof' 
-    assume "DEPOSIT tokenDepositAddress caller' ID token amount' \<in> set (steps1 @ steps2)"
-    moreover
-    have "\<nexists>token' caller' amount'.
-         DEPOSIT tokenDepositAddress caller' ID token' amount' \<in> set (steps1 @ steps2)"
-    proof (rule DEPOSITNoDouble')
-      show "steps @ stepsBefore = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2"
-        using steps
-        unfolding DEPOSIT_step_def
-        by simp
-    next
-      show "depositHashesNonZero (steps @ stepsBefore)"
-        sorry
-    next
-      show "reachableFrom contractsInit contracts' (steps @ stepsBefore)"
-        by fact
-    qed
-    ultimately
-    show False
-      by simp
-  qed
-  then have "DEPOSIT_step \<notin> set (steps1 @ steps2)"
-    unfolding DEPOSIT_step_def
-    by auto
-
-  show ?thesis
-    using cancelDepositNoClaim
-    sorry
-qed
-
-lemma nonClaimedTokenDepositsBeforeDeathOther [simp]:
-  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
-  shows "nonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
-         nonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore steps"
-  using assms
-  unfolding nonClaimedTokenDepositsBeforeDeath_def tokenDeposits_def
-  by (auto split: Step.splits)
-
-lemma nonCanceledNonClaimedTokenDepositsBeforeDeathOther [simp]:
-  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
-  assumes "\<nexists> caller' ID' amount' proof'. step = CANCEL tokenDepositAddress caller' ID' token amount' proof'"
-  shows "nonCanceledNonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
-         nonCanceledNonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore steps"
-  using assms
-  unfolding nonCanceledNonClaimedTokenDepositsBeforeDeath_def tokenDeposits_def
-  by (auto split: Step.splits)
-
-definition nonCanceledNonClaimedTokenDepositsBeforeDeathAmount where
-  "nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
-    sum_list (map DEPOSIT_amount (nonCanceledNonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore steps))"
-
-definition nonClaimedTokenDepositsBeforeDeathAmount where
-  "nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
-    sum_list (map DEPOSIT_amount (nonClaimedTokenDepositsBeforeDeath tokenDepositAddress bridgeAddress token stepsBefore steps))"
-
-lemma nonClaimedTokenDepositsBeforeDeathAmountDeposit [simp]:
-  assumes "reachableFrom contractsInit contracts (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore)"
-  shows "nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore) =
-         amount + nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
-  using assms nonClaimedTokenDepositsBeforeDeathAmount_def nonClaimedTokenDepositsBeforeDeathDeposit by auto
-
-lemma nonCanceledNonClaimedTokenDepositsBeforeDeathAmountDeposit [simp]:
-  assumes "reachableFrom contractsInit contracts (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore)"
-  shows "nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (DEPOSIT tokenDepositAddress caller ID token amount # steps @ stepsBefore) =
-         amount + nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
-  using assms nonCanceledNonClaimedTokenDepositsBeforeDeathAmount_def nonCanceledNonClaimedTokenDepositsBeforeDeathDeposit by auto
-
-lemma nonCanceledNonClaimedTokenDepositsBeforeDeathAmountOther [simp]:
-  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
-  assumes "\<nexists> caller' ID' amount' proof'. step = CANCEL tokenDepositAddress caller' ID' token amount' proof'"
-  shows "nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
-         nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
-  by (simp add: assms nonCanceledNonClaimedTokenDepositsBeforeDeathAmount_def)
-
-lemma nonClaimedTokenDepositsBeforeDeathAmountOther [simp]:
-  assumes "\<nexists> caller' ID' amount'. step = DEPOSIT tokenDepositAddress caller' ID' token amount'"
-  shows "nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
-         nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
-  by (simp add: assms nonClaimedTokenDepositsBeforeDeathAmount_def)
-
-lemma nonCanceledNonClaimedTokenDepositsBeforeDeathAmountCancel:
-  assumes "reachableFrom contractsInit contracts (CANCEL tokenDepositAddress caller ID token amount proof # steps @ stepsBefore)"
-  shows "nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (CANCEL tokenDepositAddress caller ID token amount proof # steps @ stepsBefore) =
-         nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore) - amount"
-        "amount \<le> nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
-  using nonCanceledNonClaimedTokenDepositsBeforeDeathCancel[OF assms, of bridgeAddress]
-  unfolding nonCanceledNonClaimedTokenDepositsBeforeDeathAmount_def
-  by auto
-
-
-lemma noCancelBeforeBridgeDead:
-  assumes "reachableFrom contractsInit contracts steps"
-          "\<not> (bridgeDead contracts tokenDepositAddress)"
-  shows "\<nexists> step. step \<in> set steps \<and> (\<exists> caller ID token amount proof. step = CANCEL tokenDepositAddress caller ID token amount proof)"
-  using assms
-proof (induction contractsInit contracts steps rule: reachableFrom.induct)
-  case (reachableFrom_base contracts)
-  then show ?case
-    by simp
-next
-  case (reachableFrom_step steps contracts' contractsInit contracts blockNum block step)
-  have notDead: "\<not> bridgeDead contracts tokenDepositAddress"
-    by (meson ProofVerifier.reachableFromDeadState ProofVerifier.reachableFrom_step ProofVerifier_axioms reachableFrom_base reachableFrom_step.hyps(2) reachableFrom_step.prems)
-  then show ?case
-    using reachableFrom_step callCancelDepositWhileDeadBridgeDead
-    by (metis executeStep.simps(4) set_ConsD)
-qed
-
-lemma canceledTokenAmountBridgeNotDead:
-  assumes "reachableFrom contractsInit contracts steps"
-          "\<not> (bridgeDead contracts tokenDepositAddress)"
-    shows "canceledTokenAmount tokenDepositAddress token steps = 0"
-  using assms noCancelBeforeBridgeDead[OF assms]
-  unfolding canceledTokenAmount_def tokenCancels_def
-  by (auto split: Step.splits)
-
-
-lemma nonCanceledNonClaimedBridgeNotDead:
-  assumes "reachableFrom contractsInit contracts steps"
-          "\<not> (bridgeDead contracts tokenDepositAddress)"
-    shows "nonCanceledNonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps =
-           nonClaimedTokenDepositsBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
-  using assms noCancelBeforeBridgeDead[OF assms]
-  unfolding nonCanceledNonClaimedTokenDepositsBeforeDeathAmount_def nonClaimedTokenDepositsBeforeDeathAmount_def
-  unfolding nonCanceledNonClaimedTokenDepositsBeforeDeath_def nonClaimedTokenDepositsBeforeDeath_def
-  by metis
-
+(*
 lemma
   assumes "reachableFrom contracts'' contractsF steps''"
   assumes "properSetup contractsInit tokenDepositAddress bridgeAddress"
