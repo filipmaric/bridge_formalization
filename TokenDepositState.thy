@@ -347,14 +347,14 @@ lemma callDepositOtherToken [simp]:
   by (auto simp add: Let_def  split: option.splits prod.splits if_split_asm)
 
 lemma callDepositFailsInDeadState:
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "bridgeDead contracts tokenDepositAddress"
   shows "fst (callDeposit contracts tokenDepositAddress block msg ID token amount) \<noteq> Success"
   using assms getDeadStatusFalse
   unfolding callDeposit_def deposit_def
   by (auto split: option.splits prod.splits)
 
 lemma callDepositInDeadState:
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "bridgeDead contracts tokenDepositAddress"
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
   shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
          deadState (the (tokenDepositState contracts tokenDepositAddress))"
@@ -362,29 +362,25 @@ lemma callDepositInDeadState:
   by (cases "address = tokenDepositAddress", metis callDepositFailsInDeadState fstI, metis callDepositOtherAddress)
 
 lemma callDepositDeadStateRemainsSet:
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
+  assumes "bridgeDead contracts tokenDepositAddress"
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
+  shows "bridgeDead contracts' tokenDepositAddress"
   using callDepositInDeadState[OF assms] assms
   by simp
 
-lemma callDepositLiveState:
+lemma callDepositNotBridgeDead':
   assumes "callDeposit contracts tokenDepositAddress block msg ID token amount = (Success, contracts')"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 0"
+  shows "\<not> bridgeDead contracts' tokenDepositAddress"
   using assms getDeadStatusFalse'
   unfolding callDeposit_def deposit_def
   by (auto split: option.splits prod.splits if_split_asm)
 
-lemma callDepositSetsDeadState:
-  assumes "getLastStateTD contracts tokenDepositAddress = stateRoot"
-  assumes "callDeposit contracts tokenDepositAddress block msg ID token' amount = (Success, contracts')"
-  assumes "deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = stateRoot"
-  using \<open>callDeposit contracts tokenDepositAddress block msg ID token' amount = (Success, contracts')\<close>
-  using \<open>deadState (the (tokenDepositState contracts' tokenDepositAddress)) \<noteq> 0\<close>
-  using getDeadStatusFalse'
-  unfolding callDeposit_def deposit_def
-  by (auto split: option.splits prod.splits if_split_asm)
+lemma callDepositGetLastValidStateTD [simp]:
+  assumes "callDeposit contracts tokenDepositAddress block msg ID token amount = (Success, contracts')"
+  shows "getLastValidStateTD contracts' tokenDepositAdddress = 
+         getLastValidStateTD contracts tokenDepositAdddress"
+  using assms
+  by (smt (verit, ccfv_SIG) Hash.callDepositOtherAddress Hash.callDepositStateOracle callDepositDeadStateRemainsSet callDepositIStateOracle callDepositNotBridgeDead' callLastState_def lastValidState_def)
 
 text \<open>Sufficient conditions for a deposit to be made\<close>
 lemma callDepositI:
@@ -619,6 +615,22 @@ lemma callCancelDepositWhileDeadSetsDeadState:
   unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callCancelDepositWhileDeadSetsDeadState' [simp]:
+  assumes "callCancelDepositWhileDead contracts tokenDepositAddress msg block ID token amount proof = (Success, contracts')"
+  assumes "\<not> bridgeDead contracts tokenDepositAddress"
+  shows "callLastState contracts (stateOracleAddressTD contracts tokenDepositAddress) = 
+        (Success, deadState (the (tokenDepositState contracts' tokenDepositAddress)))"
+proof-
+  have "fst (callLastState contracts (stateOracleAddressTD contracts tokenDepositAddress)) = Success"
+    using assms getDeadStatusLastValidState
+    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def lastValidState_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  then show ?thesis
+    using callCancelDepositWhileDeadSetsDeadState[OF assms]
+    using callLastState
+    by (metis split_pairs)
+qed
+
 lemma callCancelDepositWhileDead_balanceOfSender:
   assumes "callCancelDepositWhileDead contracts tokenDepositAddress msg block ID token amount proof =
            (Success, contracts')"
@@ -658,6 +670,14 @@ lemma callCancelDepositWhileDeadTokenWithdrawn [simp]:
   using assms
   unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
   by (cases "address = address'", auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callCancelWhileDeadGetLastValidStateTD [simp]:
+  assumes "callCancelDepositWhileDead contracts tokenDepositAddress msg block ID token amount proof = (Success, contracts')"
+  shows "getLastValidStateTD contracts' tokenDepositAddress = 
+         getLastValidStateTD contracts tokenDepositAddress"
+  using assms
+  by (metis callCancelDepositWhileDeadBridgeDead callCancelDepositWhileDeadInDeadState callCancelDepositWhileDeadSetsDeadState' lastValidState_def)
+
 end
 
 
@@ -863,6 +883,23 @@ lemma callWithdrawWhileDeadSetsDeadState:
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callWithdrawWhileDeadSetsDeadState' [simp]:
+  assumes "callWithdrawWhileDead contracts tokenDepositAddress msg block token amount proof = (Success, contracts')"
+  assumes "\<not> bridgeDead contracts tokenDepositAddress"
+  shows "callLastState contracts (stateOracleAddressTD contracts tokenDepositAddress) = 
+        (Success, deadState (the (tokenDepositState contracts' tokenDepositAddress)))"
+proof-
+  have "fst (callLastState contracts (stateOracleAddressTD contracts tokenDepositAddress)) = Success"
+    using assms getDeadStatusLastValidState getDeadStatusTrueDeadState
+    unfolding callWithdrawWhileDead_def withdrawWhileDead_def lastValidState_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+       (metis fst_conv less_not_refl3) (* FIXME: avoid calling methods after auto *)
+  then show ?thesis
+    using callWithdrawWhileDeadSetsDeadState[OF assms]
+    using callLastState
+    by (metis split_pairs)
+qed
+
 lemma callWithdrawWhileDeadBridgeDead:
   assumes "callWithdrawWhileDead contracts tokenDepositAddress msg block token amount proof =
            (Success, contracts')"
@@ -896,6 +933,13 @@ lemma callWithdrawWhileDeadVerifyBalanceProof:
           in verifyBalanceProof () token (sender msg) amount stateRoot proof"
   using assms
   by (smt (z3) Status.simps(3) callVerifyBalanceProof_def callWithdrawWhileDeadCallVerifyBalanceProof old.unit.exhaust option.case_eq_if)
+
+lemma callWithdrawWhileDeadGetLastValidStateTD [simp]:
+  assumes "callWithdrawWhileDead contracts tokenDepositAddress msg block token amount proof = (Success, contracts')"
+  shows "getLastValidStateTD contracts' tokenDepositAddress = 
+         getLastValidStateTD contracts tokenDepositAddress"
+  using assms
+  by (metis callWithdrawWhileDeadBridgeDead callWithdrawWhileDeadInDeadState callWithdrawWhileDeadSetsDeadState' lastValidState_def)
 
 end
 

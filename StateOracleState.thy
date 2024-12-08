@@ -88,4 +88,13 @@ lemma callUpdateOtherAddress:
   unfolding callUpdate_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callWithdrawWhileDeadGetLastValidStateTD [simp]:
+  assumes "address' \<noteq> stateOracleAddressTD contracts tokenDepositAddress"
+  assumes "callUpdate contracts address' block blockNum stateRoot = (Success, contracts')"
+  shows "getLastValidStateTD contracts' tokenDepositAddress = 
+         getLastValidStateTD contracts tokenDepositAddress"
+  using assms
+  using callLastState_def callUpdateITokenDeposit callUpdateOtherAddress lastValidState_def 
+  by presburger
+
 end

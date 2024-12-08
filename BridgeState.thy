@@ -240,6 +240,15 @@ lemma callClaimOtherAddress [simp]:
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+
+lemma callClaimGetLastValidStateTD [simp]:
+  assumes "callClaim contracts bridgeAddress msg ID token amount proof = (Success, contracts')"
+  shows "getLastValidStateTD contracts' tokenDepositAddress = 
+         getLastValidStateTD contracts tokenDepositAddress"
+  using assms
+  using callClaimIStateOracle callClaimITokenDeposit callLastState_def lastValidState_def by presburger
+
+
 text \<open>Sufficient conditions for a claim\<close>
 lemma callClaimI:
   assumes "bridgeState contracts address = Some stateBridge"

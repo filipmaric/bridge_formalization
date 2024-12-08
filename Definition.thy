@@ -661,6 +661,11 @@ abbreviation stateOracleAddressB :: "Contracts \<Rightarrow> address \<Rightarro
 \<comment> \<open>last state of the state oracle whose address is written in a token deposit\<close>
 abbreviation getLastStateB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
   "getLastStateB contracts bridgeAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (stateOracleAddressB contracts bridgeAddress)))"
+\<comment> \<open>last valid state recorded in a token deposit\<close>
+abbreviation getLastValidStateTD where
+  "getLastValidStateTD contracts tokenDepositAddress \<equiv> 
+     let stateTokenDeposit = the (tokenDepositState contracts tokenDepositAddress)
+      in lastValidState contracts stateTokenDeposit"
 
 abbreviation getMinted where
   "getMinted state token \<equiv> lookupNat (originalToMinted state) token"

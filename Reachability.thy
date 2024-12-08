@@ -522,7 +522,7 @@ proof (cases step)
   case (DEPOSIT address' caller' ID' token' amount')
   then show ?thesis
     using assms
-    by (metis callDepositOtherAddress executeStep.simps(1) callDepositLiveState)
+    by (metis callDepositOtherAddress executeStep.simps(1) callDepositNotBridgeDead')
 next
   case (CLAIM address' caller' ID' token' amount' proof')
   then show ?thesis 
@@ -801,7 +801,7 @@ next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
     apply (cases step)
-        apply (metis (no_types, lifting) Hash.callDepositOtherAddress callDepositLiveState executeStep.simps(1) reachableFrom.reachableFrom_step reachableFromGetDepositBridgeNotDead)
+        apply (metis (no_types, lifting) Hash.callDepositOtherAddress callDepositNotBridgeDead' executeStep.simps(1) reachableFrom.reachableFrom_step reachableFromGetDepositBridgeNotDead)
        apply simp
       apply simp
      apply (metis (no_types, lifting) callCancelDepositWhileDeadDeposits callCancelDepositWhileDeadOtherAddress executeStep.simps(4) lookupNat_delete lookupNat_delete')
