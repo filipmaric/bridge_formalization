@@ -674,6 +674,44 @@ next
   qed
 qed
 
+
+\<comment> \<open>Once written deposit hash can be unset only by a cancel step\<close>
+lemma reachableFromGetDepositBridgeNoCancel:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = h"
+  assumes "h \<noteq> 0"
+  assumes "\<nexists> caller amount token proof. CANCEL tokenDepositAddress caller ID token amount proof \<in> set steps"
+  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = h"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by auto
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis using reachableFrom_step
+      by (metis callDepositOtherAddress callDepositOtherID callDepositWrittenHash executeStep.simps(1) fst_conv list.set_intros(2))
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis using reachableFrom_step
+      by (metis callClaimITokenDeposit executeStep.simps(2) list.set_intros(2))
+  next
+    case (UPDATE address' stateRoot')
+    then show ?thesis using reachableFrom_step by simp
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    then show ?thesis using reachableFrom_step 
+     by (metis callCancelDepositWhileDeadOtherAddress callCancelDepositWhileDeadDeposits executeStep.simps(4) list.set_intros(1) list.set_intros(2) lookupNat_delete')
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis using reachableFrom_step
+      by (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5) list.set_intros(2))
+  qed
+qed
+
 text \<open>Once written deposit entry cannot be unset while the bridge is alive\<close>
 lemma reachableFromGetDepositBridgeNotDead:
   assumes "reachableFrom contracts contracts' steps"
@@ -684,6 +722,7 @@ lemma reachableFromGetDepositBridgeNotDead:
   assumes "\<not> bridgeDead contracts' tokenDepositAddress"
   shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = h"
   using assms
+(* FIXME: simplify proof by applying previous lemma *)
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
   then show ?case
@@ -1165,6 +1204,38 @@ next
     then show ?thesis
       using * reachableFrom_step.prems reachableFrom_step.hyps
       by (meson Step.simps(22) reachableFrom.reachableFrom_step set_ConsD)
+  qed
+qed
+
+
+lemma reachableFromGetClaimNoClaim:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<nexists> caller token amount proof. CLAIM bridgeAddress caller ID token amount proof \<in> set steps" 
+  shows "getClaim (the (bridgeState contracts' bridgeAddress)) ID = 
+         getClaim (the (bridgeState contracts bridgeAddress)) ID"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis using reachableFrom_step by simp
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis using reachableFrom_step
+      by (metis callClaimGetClaimOther executeStep.simps(2) list.set_intros(1) list.set_intros(2))
+  next
+    case (UPDATE address' stateRoot')
+    then show ?thesis using reachableFrom_step by simp
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    then show ?thesis using reachableFrom_step by simp
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis using reachableFrom_step by simp
   qed
 qed
 

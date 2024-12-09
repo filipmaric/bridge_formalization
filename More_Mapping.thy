@@ -26,6 +26,18 @@ lemma lookupNat_delete' [simp]:
   unfolding lookupNat_def
   by (simp add: lookup_default_def)
 
+lemma lookupBool_update [simp]: 
+  shows "lookupBool (Mapping.update k v m) k = v"
+  unfolding lookupBool_def
+  by (simp add: lookup_default_update)
+
+lemma lookupBool_update' [simp]:
+  assumes "k' \<noteq> k"
+  shows "lookupBool (Mapping.update k v m) k' = lookupBool m k'"
+  using assms
+  unfolding lookupBool_def
+  by (auto simp add: lookup_default_update')
+
 definition mapping_value_sum where
  "mapping_value_sum m = sum_list (map snd (Mapping.ordered_entries m))"
 
