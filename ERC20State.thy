@@ -332,6 +332,37 @@ lemma totalBalance_addToBalance [simp]:
   unfolding totalBalance_def addToBalance_def
   by simp
 
+lemma totalBalance_removeFromBalance:
+  assumes "finite (Mapping.keys (balances state))"
+  assumes "amount \<le> balanceOf state caller"
+  shows
+    "amount \<le> totalBalance state"
+    "totalBalance (removeFromBalance state caller amount) = totalBalance state - amount"
+  using assms
+  unfolding totalBalance_def removeFromBalance_def balanceOf_def
+  by auto
+
+lemma totalBalance_safeTransferFrom:
+  assumes "caller \<noteq> to"
+  assumes "finite (Mapping.keys (balances state))"
+  assumes "amount \<le> balanceOf state caller"
+  assumes "safeTransferFrom state caller to amount = (Success, state')"
+  shows "totalBalance state' = totalBalance state"
+proof-
+  have "totalBalance (removeFromBalance state caller amount) = 
+        totalBalance state - amount" "amount \<le> totalBalance state"
+    using assms totalBalance_removeFromBalance
+    by auto
+  moreover have "finite (Mapping.keys (balances (removeFromBalance state caller amount)))"
+    using assms
+    by (simp add: removeFromBalance_def)
+  ultimately
+  show ?thesis
+    using assms
+    unfolding safeTransferFrom_def transferBalance_def
+    by (auto split: if_split_asm)
+qed
+
 lemma callMint_total_balance [simp]:
   assumes "finite (Mapping.keys (balances ((the (ERC20state contracts token)))))"
   assumes "callMint contracts token caller amount = (Success, contracts')"

@@ -649,6 +649,33 @@ sublocale StrongHashProofVerifier \<subseteq> HashProofVerifier
   by unfold_locales
 
 (* -------------------------------------------------------------------------------- *)
+
+definition transfer where
+  "transfer contracts state caller receiver token amount = 
+    (if caller = receiver then
+       (Fail ''Cannot transfer tokens to yourself'', contracts)
+     else
+      let (status, mintedToken) = callOriginalToMinted contracts (BridgeState.tokenPairs state) token
+      in if status \<noteq> Success then
+            (status, contracts)
+         else let (status, contracts') = callSafeTransferFrom contracts mintedToken caller receiver amount
+               in if status \<noteq> Success then
+                     (status, contracts)
+                  else
+                     (Success, contracts'))"
+
+definition callTransfer where
+   "callTransfer contracts address caller reciever token amount = 
+     (case bridgeState contracts address of
+           None \<Rightarrow> (Fail ''wrong address'', contracts)
+         | Some state \<Rightarrow> 
+             let (status, contracts') = transfer contracts state caller reciever token amount
+              in if status \<noteq> Success then
+                    (status, contracts)
+                 else 
+                    (Success, contracts'))"
+
+(* -------------------------------------------------------------------------------- *)
 text \<open>Abbreviations\<close>
 
 \<comment> \<open>stateOracle address written in a token deposit\<close>

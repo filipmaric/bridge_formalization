@@ -21,6 +21,7 @@ datatype Step =
 | UPDATE address bytes32 (* address stateRoot *)
 | CANCEL address address uint256 address uint256 bytes (* addres caller ID token amount proof *)
 | WITHDRAW address address address uint256 bytes (* address caller token amount proof *)
+| TRANSFER address address address address uint256 (* address caller receiver token amount *)
 
 primrec executeStep :: "Contracts \<Rightarrow> nat \<Rightarrow> Block \<Rightarrow> Step \<Rightarrow> Status \<times> Contracts" where
   "executeStep contracts blockNum block (DEPOSIT address caller ID token amount) = 
@@ -33,6 +34,8 @@ primrec executeStep :: "Contracts \<Rightarrow> nat \<Rightarrow> Block \<Righta
     callCancelDepositWhileDead contracts address (message caller 0) block ID token amount proof"
 | "executeStep contracts blockNum block (WITHDRAW address caller token amount proof) = 
     callWithdrawWhileDead contracts address (message caller 0) block token amount proof"
+| "executeStep contracts blockNum block (TRANSFER address caller receiver token amount) = 
+    callTransfer contracts address caller receiver token amount"
 
 inductive reachableFrom :: "Contracts \<Rightarrow> Contracts \<Rightarrow> Step list \<Rightarrow> bool" where
   reachableFrom_base: "\<And> contracts. reachableFrom contracts contracts []"
@@ -153,8 +156,7 @@ qed
 
 lemma reachableFromBridgeDeposit [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "BridgeState.deposit (the (bridgeState contracts' address)) = 
-         BridgeState.deposit (the (bridgeState contracts address))"
+  shows "depositAddressB contracts' address = depositAddressB contracts address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -185,6 +187,11 @@ next
       by (cases "address \<noteq> address'") auto
   next
     case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
     then show ?thesis
       using reachableFrom_step
       by simp
@@ -227,6 +234,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by (cases "address \<noteq> address'") auto
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
   qed
 qed
 
@@ -266,6 +278,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by (cases "address \<noteq> address'") auto
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
   qed
 qed
 
@@ -305,6 +322,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by (cases "address \<noteq> address'") auto
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
   qed
 qed
 
@@ -344,6 +366,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by (cases "address \<noteq> address'") auto
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by simp
   qed
 qed
 
@@ -383,7 +410,7 @@ next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
     using callClaimBridgeState[of contracts'] callClaimOtherAddress
-    by (cases step, simp, metis executeStep.simps(2), simp, simp, simp)
+    by (cases step, simp, metis executeStep.simps(2), simp, simp, simp, simp)
 qed
 
 lemma reachableFromTokenDepositState:
@@ -403,7 +430,8 @@ next
         simp, 
         simp, 
         metis callCancelDepositWhileDeadE callCancelDepositWhileDeadOtherAddress executeStep.simps(4),
-        metis callWithdrawWhileDeadE callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+        metis callWithdrawWhileDeadE callWithdrawWhileDeadOtherAddress executeStep.simps(5), 
+        simp)
 qed
 
 lemma reachableFromERC20State:
@@ -443,6 +471,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by (cases "token = token'") (auto simp add: callWithdrawWhileDeadERC20state(2))
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step callTransferERC20state
+      by auto
   qed
 qed
 
@@ -495,6 +528,11 @@ next
     then show ?thesis
       using reachableFrom_step *
       by (metis callWithdrawWhileDeadInDeadState executeStep.simps(5))
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step *
+      by auto
   qed
 qed
 
@@ -538,6 +576,11 @@ next
   then show ?thesis
     using assms
     by (metis callWithdrawWhileDeadOtherAddress callWithdrawWhileDeadSetsDeadState executeStep.simps(5))
+next
+  case (TRANSFER address' caller' receiver' token' amount')
+  then show ?thesis
+    using assms reachableFrom_step
+    by auto
 qed
 
 text \<open>State root is never zero in an update\<close>
@@ -598,6 +641,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by auto
   qed
 qed
 
@@ -664,6 +712,11 @@ next
       then show ?thesis
         using reachableFrom_step *
         by simp
+    next
+      case (TRANSFER address' caller' receiver' token' amount')
+      then show ?thesis
+        using reachableFrom_step *
+        by auto
     qed
   qed
 qed
@@ -703,6 +756,11 @@ next
     case (WITHDRAW address' caller' token' amount' proof')
     then show ?thesis using reachableFrom_step
       by (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5) list.set_intros(2))
+  next
+  case (TRANSFER address' caller' receiver' token' amount')
+  then show ?thesis
+    using reachableFrom_step
+    by auto
   qed
 qed
 
@@ -793,6 +851,11 @@ next
       using WITHDRAW reachableFrom_step.hyps
       by (cases "address' = tokenDepositAddress") 
          (simp, metis callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by auto
   qed
 qed
 
@@ -810,11 +873,12 @@ next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
     apply (cases step)
-        apply (metis Hash.callDepositOtherAddress callDepositFailsInDeadState executeStep.simps(1) fst_conv reachableFromDeadState)
+         apply (metis Hash.callDepositOtherAddress callDepositFailsInDeadState executeStep.simps(1) fst_conv reachableFromDeadState)
+        apply simp
        apply simp
-      apply simp
-     apply (metis callCancelDepositWhileDeadDeposits callCancelDepositWhileDeadOtherAddress executeStep.simps(4) lookupNat_delete lookupNat_delete')
-    apply (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+      apply (metis callCancelDepositWhileDeadDeposits callCancelDepositWhileDeadOtherAddress executeStep.simps(4) lookupNat_delete lookupNat_delete')
+     apply (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+    apply simp
     done
 qed
 
@@ -834,11 +898,12 @@ next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
     apply (cases step)
-        apply (metis (no_types, lifting) Hash.callDepositOtherAddress callDepositNotBridgeDead' executeStep.simps(1) reachableFrom.reachableFrom_step reachableFromGetDepositBridgeNotDead)
+         apply (metis (no_types, lifting) Hash.callDepositOtherAddress callDepositNotBridgeDead' executeStep.simps(1) reachableFrom.reachableFrom_step reachableFromGetDepositBridgeNotDead)
+        apply simp
        apply simp
-      apply simp
-     apply (metis (no_types, lifting) callCancelDepositWhileDeadDeposits callCancelDepositWhileDeadOtherAddress executeStep.simps(4) lookupNat_delete lookupNat_delete')
-    apply (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+      apply (metis (no_types, lifting) callCancelDepositWhileDeadDeposits callCancelDepositWhileDeadOtherAddress executeStep.simps(4) lookupNat_delete lookupNat_delete')
+     apply (metis callWithdrawWhileDeadDeposits callWithdrawWhileDeadOtherAddress executeStep.simps(5))
+    apply simp
     done
 qed
 
@@ -880,6 +945,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by auto
   qed
 qed
 
@@ -917,6 +987,12 @@ next
   then show ?thesis
     using assms
     by (smt (verit, ccfv_SIG) callWithdrawWhileDeadGetLastValidStateTD callWithdrawWhileDeadOtherAddress executeStep.simps(5) callLastState_def callWithdrawWhileDeadIStateOracle lastValidState_def)
+next
+  case (TRANSFER address' caller' receiver' token' amount')
+  then show ?thesis
+    using assms reachableFrom_step
+    unfolding lastValidState_def Let_def callLastState_def
+    by auto
 qed
 
 lemma noUpdateLastState:
@@ -957,6 +1033,11 @@ next
     then show ?thesis
       using reachableFrom_step
       by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by auto
   qed
 qed
 
@@ -1037,6 +1118,11 @@ proof (rule ccontr)
         by (cases "address' \<noteq> tokenDepositAddress")
            (metis callWithdrawWhileDeadOtherAddress executeStep.simps(5) list.set_intros(2),
             simp)
+    next
+      case (TRANSFER address' caller' receiver' token' amount')
+      then show ?thesis
+        using reachableFrom_step
+        by auto
     qed
   qed
 qed
@@ -1073,6 +1159,7 @@ next
           metis callClaimOtherAddress callClaimPreservesTrueClaim executeStep.simps(2) set_ConsD,
           simp,
           simp,
+          simp,
           simp)
   qed
 qed
@@ -1106,7 +1193,7 @@ next
       by auto
     then show ?thesis
       using reachableFrom_step DEPOSIT
-      by (meson Step.simps(9) dual_order.trans reachableFrom.reachableFrom_step set_ConsD set_subset_Cons)
+      by (meson Step.simps(10) dual_order.trans reachableFrom.reachableFrom_step set_ConsD set_subset_Cons)
   next
     case (CLAIM address' caller' ID' token' amount' proof')
     then have "StateOracleState.lastState (the (stateOracleState contracts address)) \<noteq> 
@@ -1114,7 +1201,7 @@ next
       using reachableFrom_step by auto
     then show ?thesis
       using reachableFrom_step CLAIM
-      by (meson Step.simps(15) dual_order.trans reachableFrom.reachableFrom_step set_ConsD set_subset_Cons)
+      by (meson Step.simps(18) dual_order.trans reachableFrom.reachableFrom_step set_ConsD set_subset_Cons)
   next
     case (UPDATE address' stateRoot')
     then have *: "stateRoot' = generateStateRoot contracts'"
@@ -1147,7 +1234,7 @@ next
       using reachableFrom_step by auto
     then show ?thesis
       using reachableFrom_step CANCEL
-      by (meson Step.simps(20) reachableFrom.reachableFrom_step set_ConsD set_subset_Cons subset_trans)
+      by (meson Step.simps(25) reachableFrom.reachableFrom_step set_ConsD set_subset_Cons subset_trans)
   next
     case (WITHDRAW address' caller' token' amount' proof')
     then have "StateOracleState.lastState (the (stateOracleState contracts address)) \<noteq> 
@@ -1155,7 +1242,13 @@ next
       using reachableFrom_step by auto
     then show ?thesis
       using reachableFrom_step WITHDRAW
-      by (meson Step.simps(22) reachableFrom.reachableFrom_step set_ConsD set_subset_Cons subset_trans)
+      by (meson Step.simps(27) reachableFrom.reachableFrom_step set_ConsD set_subset_Cons subset_trans)
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by auto (smt (z3) Step.simps(29) executeStep.simps(6) insertE list.simps(15) reachableFrom.reachableFrom_step subset_insertI2)
+      (* FIXME: avoid calling methods after auto *)
   qed
 qed
 
@@ -1190,17 +1283,17 @@ next
     case (DEPOSIT address' caller' ID' token' amount')
     then show ?thesis
       using * reachableFrom_step.prems reachableFrom_step.hyps
-      by (meson Step.simps(9) reachableFrom.reachableFrom_step set_ConsD)
+      by (meson Step.simps(10) reachableFrom.reachableFrom_step set_ConsD)
   next
     case (CLAIM address' caller' ID' token' amount' proof')
     then show ?thesis
       using * reachableFrom_step.prems reachableFrom_step.hyps
-      by (meson Step.simps(15) reachableFrom.reachableFrom_step set_ConsD)
+      by (meson Step.simps(18) reachableFrom.reachableFrom_step set_ConsD)
   next
     case (CANCEL address' caller' ID' token' amount' proof')
     then show ?thesis
       using * reachableFrom_step.prems reachableFrom_step.hyps
-      by (meson Step.simps(20) reachableFrom.reachableFrom_step set_ConsD)
+      by (meson Step.simps(25) reachableFrom.reachableFrom_step set_ConsD)
   next
     case (UPDATE address' stateRoot')
     show ?thesis
@@ -1230,7 +1323,12 @@ next
     case (WITHDRAW address' caller' token' amount' proof')
     then show ?thesis
       using * reachableFrom_step.prems reachableFrom_step.hyps
-      by (meson Step.simps(22) reachableFrom.reachableFrom_step set_ConsD)
+      by (meson Step.simps(27) reachableFrom.reachableFrom_step set_ConsD)
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using * reachableFrom_step.prems reachableFrom_step.hyps
+      by (meson Step.simps(29) reachableFrom.reachableFrom_step set_ConsD)
   qed
 qed
 
@@ -1289,6 +1387,11 @@ next
         using reachableFrom_step UPDATE False reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
         by force
     qed
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
   qed
 qed
 
@@ -1345,6 +1448,11 @@ next
         using UPDATE reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
         by force
     qed
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
   qed
 qed
 
@@ -1376,6 +1484,9 @@ next
     then show ?thesis using reachableFrom_step by simp
   next
     case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis using reachableFrom_step by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
     then show ?thesis using reachableFrom_step by simp
   qed
 qed
@@ -1503,6 +1614,22 @@ lemma callWithdrawWhileDeadProperToken [simp]:
   using assms
   unfolding properToken_def
   by (metis callWithdrawWhileDeadERC20state(2) callWithdrawWhileDeadIBridge callWithdrawWhileDeadITokenPairs callWithdrawWhileDeadOtherToken)
+
+lemma callTransferProperSetup [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress"
+  shows  "properSetup contracts' tokenDepositAddress bridgeAddress"
+  using assms
+  unfolding properSetup_def
+  using callTransferIBridge callTransferIProofVerifier callTransferIStateOracle callTransferITokenDeposit callTransferITokenPairs by presburger
+
+lemma callTransferProperToken [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "properToken contracts tokenDepositAddress bridgeAddress tokenAddress"
+  shows  "properToken contracts' tokenDepositAddress bridgeAddress tokenAddress"
+  using assms
+  unfolding properToken_def
+  by (metis callTransferERC20state callTransferIBridge callTransferITokenPairs)
 
 lemma properSetupReachable [simp]:
   assumes "reachableFrom contracts contracts' steps"

@@ -321,6 +321,139 @@ lemma callVerifyClaimProofI:
   by (auto split: option.splits prod.splits)
 
 
+subsection \<open>callTransfer\<close>
+  
+lemma callTransferSafeTransferFrom:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "callSafeTransferFrom contracts (mintedTokenB contracts address token) caller receiver amount = (Success, contracts')"
+    using assms callOriginalToMinted
+    unfolding callTransfer_def transfer_def
+    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferBalanceOfReceiver:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "accountBalance contracts' mintedToken receiver =
+         accountBalance contracts mintedToken receiver + amount"
+proof-
+  have "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms(1) assms(2) callTransferSafeTransferFrom by blast
+  then show ?thesis
+    by (smt (verit, ccfv_threshold) callBalanceOf_def callSafeTransferFromBalanceOfTo callSafeTransferFromERC20state(1) callSafeTransferFromERC20state(2) option.case_eq_if)
+qed
+
+lemma callTransferBalanceOfCaller:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "amount \<le> accountBalance contracts mintedToken caller"
+        "accountBalance contracts' mintedToken caller =
+         accountBalance contracts mintedToken caller - amount"
+proof-
+  have "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms(1) assms(2) callTransferSafeTransferFrom by blast
+  then show "amount \<le> accountBalance contracts mintedToken caller"
+            "accountBalance contracts' mintedToken caller =
+             accountBalance contracts mintedToken caller - amount"
+    using safeTransferFromBalanceOfCaller[of _ _ caller receiver amount]
+    unfolding callSafeTransferFrom_def
+    by (auto  split: option.splits prod.splits if_split_asm)
+qed
+
+
+
+lemma callTransferTotalBalance:
+  assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"
+  assumes "callTransfer contracts bridgeAddress caller receiver token amount = (Success, contracts')"
+  assumes "mintedTokenB contracts bridgeAddress token = mintedToken"
+  shows "totalTokenBalance contracts' token' =
+         totalTokenBalance contracts token'"
+proof-
+  have *: "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms callTransferSafeTransferFrom by blast
+
+  have "caller \<noteq> receiver"
+    using assms
+    unfolding callTransfer_def transfer_def
+    by (simp split: option.splits prod.splits if_split_asm)
+
+  have **: "amount \<le> balanceOf (the (ERC20state contracts mintedToken)) caller"
+    using callTransferBalanceOfCaller(1) assms by blast
+
+  show ?thesis
+  proof (cases "token' = mintedTokenB contracts bridgeAddress token")
+    case True
+    then show ?thesis
+      using assms(3) *
+      using totalBalance_safeTransferFrom[OF \<open>caller \<noteq> receiver\<close> assms(1) **]
+      unfolding callSafeTransferFrom_def
+      by (auto split: option.splits prod.splits if_split_asm)
+  next
+    case False
+    then show ?thesis
+      using * assms(3)
+      unfolding callSafeTransferFrom_def
+      by (auto split: option.splits prod.splits if_split_asm)
+  qed
+qed
+
+lemma callTransferOtherToken:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  assumes "mintedToken \<noteq> token'"
+  shows "ERC20state contracts' token' = ERC20state contracts token'"
+proof-
+  have "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms(1) assms(2) callTransferSafeTransferFrom by blast
+  then show ?thesis
+    by (metis assms(3) callSafeTransferFromOtherToken)
+qed
+
+lemma callTransferITokenPairs [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "ITokenPairs contracts' = ITokenPairs contracts"
+  using assms
+  unfolding callTransfer_def transfer_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferITokenDeposit [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "ITokenDeposit contracts' = ITokenDeposit contracts"
+  using assms
+  unfolding callTransfer_def transfer_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferIProofVerifier [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "IProofVerifier contracts' = IProofVerifier contracts"
+  using assms
+  unfolding callTransfer_def transfer_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferIStateOracle [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "IStateOracle contracts' = IStateOracle contracts"
+  using assms
+  unfolding callTransfer_def transfer_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferIBridge [simp]:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "IBridge contracts' = IBridge contracts"
+  using assms
+  unfolding callTransfer_def transfer_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callTransferERC20state:
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "ERC20state contracts token' \<noteq> None"
+  shows "ERC20state contracts' token' \<noteq> None"
+proof-
+  have *: "callSafeTransferFrom contracts (mintedTokenB contracts address token) caller receiver amount = (Success, contracts')"
+    using assms(1) assms(2) callTransferSafeTransferFrom by blast
+   show ?thesis
+     using assms(2) callSafeTransferFromERC20state(2)[OF *] callSafeTransferFromOtherToken[OF _ *]
+     by metis
+qed
 end
 
 end
