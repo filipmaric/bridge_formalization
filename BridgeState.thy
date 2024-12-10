@@ -55,38 +55,38 @@ lemma claimBalanceOfMinted:
   assumes "claim contracts msg state ID token amount proof = (Success, state', contracts')"
   assumes "stateTokenPairs = the (tokenPairsState contracts (tokenPairs state))"
   assumes "mintedToken = getMinted stateTokenPairs token"
-  shows "balanceOf (the (ERC20state (setBridgeState contracts' address state') mintedToken)) (sender msg) = 
-         balanceOf (the (ERC20state contracts mintedToken)) (sender msg) + amount"
+  shows "accountBalance (setBridgeState contracts' address state') mintedToken (sender msg) =
+         accountBalance contracts mintedToken (sender msg) + amount"
   using assms callMintBalanceOf callOriginalToMinted
   unfolding claim_def
   by (auto simp add: Let_def split: if_split_asm prod.splits option.splits)
 
 lemma callClaimBalanceOfMinted:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  assumes "mintedToken = bridgeMintedToken contracts address token"
-  shows "balanceOf (the (ERC20state contracts' mintedToken)) (sender msg) = 
-         balanceOf (the (ERC20state contracts mintedToken)) (sender msg) + amount"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "accountBalance contracts' mintedToken (sender msg) =
+         accountBalance contracts mintedToken (sender msg) + amount"
   using assms claimBalanceOfMinted
-  unfolding callClaim_def bridgeMintedToken_def
+  unfolding callClaim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimOtherToken:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  assumes "mintedToken = bridgeMintedToken contracts address token"
+  assumes "mintedToken = mintedTokenB contracts address token"
   assumes "mintedToken \<noteq> token'"
   shows "ERC20state contracts' token' = ERC20state contracts token'"
-  using assms
+  using assms 
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
-     (metis bridgeMintedToken_def callMintIBridge callMintOtherToken callOriginalToMinted option.sel)
+     (metis callMintITokenPairs callMintOtherToken callOriginalToMinted)
  (* FIXME: avoid proof after auto *)
 
 lemma callClaimTotalBalance:
   assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"
   assumes "callClaim contracts bridgeAddress msg ID token amount proof' = (Success, contracts')"
-  assumes "bridgeMintedToken contracts bridgeAddress token = mintedToken"
-  shows "totalBalance (the (ERC20state contracts' mintedToken)) =
-         totalBalance (the (ERC20state contracts mintedToken)) + amount"
+  assumes "mintedTokenB contracts bridgeAddress token = mintedToken"
+  shows "totalTokenBalance contracts' mintedToken =
+         totalTokenBalance contracts mintedToken + amount"
 proof-
   define stateBridge where "stateBridge = the (bridgeState contracts bridgeAddress)"
 
@@ -98,7 +98,7 @@ proof-
   then have "callOriginalToMinted contracts (BridgeState.tokenPairs stateBridge) token = 
              (Success, mintedToken)"
     using assms
-    unfolding bridgeMintedToken_def Let_def stateBridge_def
+    unfolding  Let_def stateBridge_def
     by simp
   then show ?thesis
     using assms
@@ -109,22 +109,37 @@ qed
 
 lemma callClaimCallLastState:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "let state = the (bridgeState contracts address);
-             lastState = getLastStateB contracts address
-          in callLastState contracts (BridgeState.stateOracle state) = (Success, lastState)"
+  shows "callLastState contracts (stateOracleAddressB contracts address) =
+         (Success, lastStateB contracts address)"
   using assms callLastState
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def simp del: callLastState split: option.splits prod.splits if_split_asm)
 
+
 lemma callClaimCallVerifyProof:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "let state = the (bridgeState contracts address);
-             lastState = getLastStateB contracts address
-          in callVerifyDepositProof contracts (BridgeState.proofVerifier state) (BridgeState.deposit state)
-                             ID (hash3 (sender msg) token amount) lastState proof = Success"
+  shows "callVerifyDepositProof contracts 
+           (proofVerifierAddressB contracts address) 
+           (depositAddressB contracts address)
+           ID
+           (hash3 (sender msg) token amount) 
+           (lastStateB contracts address) 
+           proof = Success"
   using assms callLastState
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def simp del: callLastState split: option.splits prod.splits if_split_asm)
+
+lemma callClaimVerifyProof:
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  shows "verifyDepositProof () 
+         (depositAddressB contracts address)
+         ID
+         (hash3 (sender msg) token amount)
+         (lastStateB contracts address)
+         proof"
+  using callClaimCallVerifyProof[OF assms]
+  unfolding callVerifyDepositProof_def
+  by (simp split: option.splits prod.splits if_split_asm)
 
 lemma callClaimITokenPairs [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -156,40 +171,40 @@ lemma callClaimIStateOracle [simp]:
 
 lemma callClaimDeposit [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "BridgeState.deposit (the (bridgeState contracts' address)) =
-         BridgeState.deposit (the (bridgeState contracts address))"
+  shows "depositAddressB contracts' address =
+         depositAddressB contracts address"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimTokenPairs [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "BridgeState.tokenPairs (the (bridgeState contracts' address)) =
-         BridgeState.tokenPairs (the (bridgeState contracts address))"
+  shows "tokenPairsAddressB contracts' address = 
+         tokenPairsAddressB contracts address"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimStateOracle [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "BridgeState.stateOracle (the (bridgeState contracts' address)) =
-         BridgeState.stateOracle (the (bridgeState contracts address))"
+  shows "stateOracleAddressB contracts' address = 
+         stateOracleAddressB contracts address"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimProofVerifier [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "BridgeState.proofVerifier (the (bridgeState contracts' address)) =
-         BridgeState.proofVerifier (the (bridgeState contracts address))"
+  shows "proofVerifierAddressB contracts' address =
+         proofVerifierAddressB contracts address"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimDeadState [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
-         deadState (the (tokenDepositState contracts tokenDepositAddress))"
+  shows "deadStateTD contracts' tokenDepositAddress = 
+         deadStateTD contracts tokenDepositAddress"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -243,8 +258,8 @@ lemma callClaimOtherAddress [simp]:
 
 lemma callClaimGetLastValidStateTD [simp]:
   assumes "callClaim contracts bridgeAddress msg ID token amount proof = (Success, contracts')"
-  shows "getLastValidStateTD contracts' tokenDepositAddress = 
-         getLastValidStateTD contracts tokenDepositAddress"
+  shows "lastValidStateTD contracts' tokenDepositAddress = 
+         lastValidStateTD contracts tokenDepositAddress"
   using assms
   using callClaimIStateOracle callClaimITokenDeposit callLastState_def lastValidState_def by presburger
 

@@ -193,8 +193,7 @@ qed
 
 lemma reachableFromBridgeTokenPairs [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "BridgeState.tokenPairs (the (bridgeState contracts' address)) = 
-         BridgeState.tokenPairs (the (bridgeState contracts address))"
+  shows "tokenPairsAddressB contracts' address = tokenPairsAddressB contracts address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -233,8 +232,7 @@ qed
 
 lemma reachableFromBridgeStateOracle [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "BridgeState.stateOracle (the (bridgeState contracts' address)) = 
-         BridgeState.stateOracle (the (bridgeState contracts address))"
+  shows "stateOracleAddressB contracts' address = stateOracleAddressB contracts address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -273,8 +271,7 @@ qed
 
 lemma reachableFromBridgeProofVerifier [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "BridgeState.proofVerifier (the (bridgeState contracts' address)) = 
-         BridgeState.proofVerifier (the (bridgeState contracts address))"
+  shows "proofVerifierAddressB contracts' address = proofVerifierAddressB contracts address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -313,8 +310,7 @@ qed
 
 lemma reachableFromDepositStateOracle [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "TokenDepositState.stateOracle (the (tokenDepositState contracts' address)) =
-         TokenDepositState.stateOracle (the (tokenDepositState contracts address))"
+  shows "stateOracleAddressTD contracts' address = stateOracleAddressTD contracts address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -353,12 +349,11 @@ qed
 
 lemma reachableFromBridgeMintedToken [simp]:
   assumes "reachableFrom contracts contracts' steps"
-  shows "bridgeMintedToken contracts' bridgeAddress token =
-         bridgeMintedToken contracts bridgeAddress token"
+  shows "mintedTokenB contracts' bridgeAddress token =
+         mintedTokenB contracts bridgeAddress token"
   using assms
-  unfolding bridgeMintedToken_def Let_def
+  unfolding Let_def
   by simp
-
 
 lemma reachableFromGetTokenWithdrawn:
   assumes "reachableFrom contracts contracts' steps"
@@ -461,9 +456,9 @@ lemma reachableFromOriginalToMinted [simp]:
 
 lemma reachableFromDeadState:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "deadState (the (tokenDepositState contracts tokenDepositAddress)) = stateRoot"
+  assumes "deadStateTD contracts tokenDepositAddress = stateRoot"
   assumes "stateRoot \<noteq> 0"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = stateRoot"
+  shows "deadStateTD contracts' tokenDepositAddress = stateRoot"
   using assms
 proof (induction contracts contracts' steps)
   case (reachableFrom_base contracts)
@@ -471,7 +466,7 @@ proof (induction contracts contracts' steps)
     by simp
 next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
-  then have *: "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = stateRoot"
+  then have *: "deadStateTD contracts' tokenDepositAddress = stateRoot"
     by simp
   then show ?case
     using reachableFrom_step.hyps(2)
@@ -516,8 +511,8 @@ lemma BridgeDiesDeadState:
   assumes "\<not> bridgeDead contracts tokenDepositAddress"
   assumes "executeStep contracts block blockNum step = (Success, contracts')"
   assumes "bridgeDead contracts' tokenDepositAddress"
-  shows "deadState (the (tokenDepositState contracts' tokenDepositAddress)) = 
-         getLastStateTD contracts tokenDepositAddress"
+  shows "deadStateTD contracts' tokenDepositAddress = 
+         lastStateTD contracts tokenDepositAddress"
 proof (cases step)
   case (DEPOSIT address' caller' ID' token' amount')
   then show ?thesis
@@ -568,8 +563,8 @@ lemma updatesNonZeroAppend:
 lemma reachableFromStateRootNonZero:
   assumes "reachableFrom contracts contracts' steps" 
   assumes "updatesNonZero steps"
-  assumes "lastState (the (stateOracleState contracts address)) \<noteq> 0"
-  shows "lastState (the (stateOracleState contracts' address)) \<noteq> 0"
+  assumes "lastStateSO contracts address \<noteq> 0"
+  shows "lastStateSO contracts' address \<noteq> 0"
   using assms
 proof (induction contracts contracts' steps)
   case (reachableFrom_base contracts)
@@ -609,8 +604,8 @@ qed
 lemma reachableFromGetLastStateTDNonzero:
   assumes "reachableFrom contracts contracts' steps"
   assumes "updatesNonZero steps"
-  assumes "getLastStateTD contracts tokenDepositAddress \<noteq> 0"
-  shows "getLastStateTD contracts' tokenDepositAddress \<noteq> 0"
+  assumes "lastStateTD contracts tokenDepositAddress \<noteq> 0"
+  shows "lastStateTD contracts' tokenDepositAddress \<noteq> 0"
   using assms reachableFromStateRootNonZero
   by simp
 
@@ -618,10 +613,9 @@ text \<open>If there was at least one update and no updates set zero state,
       then the last state is not zero\<close>
 lemma lastStateNonZero:
   assumes "reachableFrom initContracts contracts steps"
-  assumes "let stateOracleAddress = stateOracleAddressB contracts bridgeAddress 
-            in UPDATE stateOracleAddress stateRoot \<in> set steps"
+  assumes "UPDATE (stateOracleAddressB contracts bridgeAddress) stateRoot \<in> set steps"
   assumes "updatesNonZero steps"
-  shows "getLastStateB contracts bridgeAddress \<noteq> 0"
+  shows "lastStateB contracts bridgeAddress \<noteq> 0"
   using assms
 proof (induction initContracts contracts steps)
   case (reachableFrom_base contracts)
@@ -638,10 +632,10 @@ next
       by (auto simp add: Let_def)
   next
     case False
-    then have *: "getLastStateB contracts' bridgeAddress \<noteq> 0"
+    then have *: "lastStateB contracts' bridgeAddress \<noteq> 0"
       using reachableFrom_step updatesNonZeroCons
       by (smt (verit, ccfv_SIG) reachableFromBridgeStateOracle reachableFrom.reachableFrom_step set_ConsD)
-    show "getLastStateB contracts'' bridgeAddress \<noteq> 0"
+    show "lastStateB contracts'' bridgeAddress \<noteq> 0"
     proof (cases step)
       case (DEPOSIT address' caller' ID' token' amount')
       then show ?thesis
@@ -890,11 +884,45 @@ next
 qed
 
 text \<open>When there are no updates, then the last state remains the same\<close>
+
+(* FIXME: arbitrary address *)
+lemma noUpdateGetLastValidStateTD:
+  assumes "executeStep contracts block blockNum step = (Success, contracts')"
+  assumes "\<nexists>stateRoot'. step = UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot'"
+  shows "lastValidStateTD contracts' tokenDepositAddress = 
+         lastValidStateTD contracts tokenDepositAddress"
+  using assms
+proof (cases step)
+  case (DEPOSIT address' caller' ID' token' amount')
+  then show ?thesis
+    using assms
+    by simp
+next
+  case (CLAIM address' caller' ID' token' amount' proof')
+  then show ?thesis
+    using assms
+    by (metis callClaimGetLastValidStateTD executeStep.simps(2))
+next
+  case (UPDATE address' stateRoot')
+  then show ?thesis
+    using assms
+    by (metis StateOracleState.callWithdrawWhileDeadGetLastValidStateTD executeStep.simps(3))
+next
+  case (CANCEL address' caller' ID' token' amount' proof')
+  then show ?thesis
+    using assms
+    by (smt (verit, ccfv_SIG) callCancelDepositWhileDeadIStateOracle callCancelDepositWhileDeadOtherAddress callCancelWhileDeadGetLastValidStateTD executeStep.simps(4) callLastState_def lastValidState_def)
+next
+  case (WITHDRAW address' caller' token' amount' proof')
+  then show ?thesis
+    using assms
+    by (smt (verit, ccfv_SIG) callWithdrawWhileDeadGetLastValidStateTD callWithdrawWhileDeadOtherAddress executeStep.simps(5) callLastState_def callWithdrawWhileDeadIStateOracle lastValidState_def)
+qed
+
 lemma noUpdateLastState:
   assumes "reachableFrom contracts contracts' steps"
   assumes "\<nexists> stateRoot. UPDATE address stateRoot \<in> set steps"
-  shows "StateOracleState.lastState (the (stateOracleState contracts address)) =  
-         StateOracleState.lastState (the (stateOracleState contracts' address))"
+  shows "lastStateSO contracts address = lastStateSO contracts' address"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -1054,8 +1082,7 @@ text \<open>If state oracle last state has changed, it must have been due to an 
       One of those updates must be the last update applied.\<close>
 lemma lastUpdateHappened:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "StateOracleState.lastState (the (stateOracleState contracts address)) \<noteq> 
-           StateOracleState.lastState (the (stateOracleState contracts' address))"
+  assumes "lastStateSO contracts address \<noteq> lastStateSO contracts' address"
   shows "\<exists> contractsU contractsU' block blockNum steps1 steps2 stateRoot. 
                        reachableFrom contracts contractsU steps1 \<and> 
                        stateRoot = generateStateRoot contractsU \<and>
@@ -1209,8 +1236,7 @@ qed
 
 lemma lastUpdateHappenedSteps:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "StateOracleState.lastState (the (stateOracleState contracts address)) \<noteq> 
-           StateOracleState.lastState (the (stateOracleState contracts' address))"
+  assumes "lastStateSO contracts address \<noteq> lastStateSO contracts' address"
   shows "\<exists> contractsU steps1 steps2 stateRoot. 
                        reachableFrom contracts contractsU steps1 \<and> 
                        stateRoot = generateStateRoot contractsU \<and>
@@ -1388,15 +1414,14 @@ definition properToken :: "Contracts \<Rightarrow> address \<Rightarrow> address
 
 lemma properSetup_stateOracleAddress:
   assumes "properSetup contracts tokenDepositAddress bridgeAddress"
-  shows "TokenDepositState.stateOracle (the (tokenDepositState contracts tokenDepositAddress)) = 
-         BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))"
+  shows "stateOracleAddressTD contracts tokenDepositAddress = stateOracleAddressB contracts bridgeAddress"
   using assms
   unfolding properSetup_def
   by (simp add: Let_def)
 
 lemma properSetup_getLastState:
   assumes "properSetup contracts tokenDepositAddress bridgeAddress"
-  shows "getLastStateB contracts bridgeAddress = getLastStateTD contracts tokenDepositAddress"
+  shows "lastStateB contracts bridgeAddress = lastStateTD contracts tokenDepositAddress"
   using assms
   by (simp add: properSetup_stateOracleAddress)
 

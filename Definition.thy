@@ -648,37 +648,94 @@ locale StrongHashProofVerifier = StrongHash + ProofVerifier
 sublocale StrongHashProofVerifier \<subseteq> HashProofVerifier
   by unfold_locales
 
+(* -------------------------------------------------------------------------------- *)
+text \<open>Abbreviations\<close>
+
 \<comment> \<open>stateOracle address written in a token deposit\<close>
 abbreviation stateOracleAddressTD :: "Contracts \<Rightarrow> address \<Rightarrow> address" where
   "stateOracleAddressTD contracts tokenDepositAddress \<equiv> TokenDepositState.stateOracle (the (tokenDepositState contracts tokenDepositAddress))"
-\<comment> \<open>last state of the state oracle whose address is writ
-ten in a token deposit\<close>
-abbreviation getLastStateTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
-  "getLastStateTD contracts tokenDepositAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (stateOracleAddressTD contracts tokenDepositAddress)))"
+
+abbreviation stateOracleStateTD :: "Contracts \<Rightarrow> address \<Rightarrow> StateOracleState" where
+  "stateOracleStateTD contracts tokenDepositAddress \<equiv> 
+    the (stateOracleState contracts (stateOracleAddressTD contracts tokenDepositAddress))"
+
 \<comment> \<open>stateOracle address written in a bridge\<close>
 abbreviation stateOracleAddressB :: "Contracts \<Rightarrow> address \<Rightarrow> address" where
   "stateOracleAddressB contracts bridgeAddress \<equiv> BridgeState.stateOracle (the (bridgeState contracts bridgeAddress))"
+
+abbreviation stateOracleStateB :: "Contracts \<Rightarrow> address \<Rightarrow> StateOracleState" where
+  "stateOracleStateB contracts bridgeAddress \<equiv> 
+    the (stateOracleState contracts (stateOracleAddressB contracts bridgeAddress))"
+
 \<comment> \<open>last state of the state oracle whose address is written in a token deposit\<close>
-abbreviation getLastStateB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
-  "getLastStateB contracts bridgeAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts (stateOracleAddressB contracts bridgeAddress)))"
+abbreviation lastStateTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
+  "lastStateTD contracts tokenDepositAddress \<equiv> 
+   StateOracleState.lastState (stateOracleStateTD contracts tokenDepositAddress)"
+
+abbreviation lastStateB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256" where
+  "lastStateB contracts bridgeAddress \<equiv> 
+   StateOracleState.lastState (stateOracleStateB contracts bridgeAddress)"
+
 \<comment> \<open>last valid state recorded in a token deposit\<close>
-abbreviation getLastValidStateTD where
-  "getLastValidStateTD contracts tokenDepositAddress \<equiv> 
+abbreviation lastValidStateTD where
+  "lastValidStateTD contracts tokenDepositAddress \<equiv> 
      let stateTokenDeposit = the (tokenDepositState contracts tokenDepositAddress)
       in lastValidState contracts stateTokenDeposit"
+
+abbreviation deadStateTD where
+  "deadStateTD contracts tokenDepositAddress \<equiv> 
+   deadState (the (tokenDepositState contracts tokenDepositAddress))"
+
+abbreviation bridgeDead where
+  "bridgeDead contracts tokenDepositAddress \<equiv>
+   deadStateTD contracts tokenDepositAddress \<noteq> 0"
+
+abbreviation tokenPairsAddressTD :: "Contracts \<Rightarrow> address \<Rightarrow> address" where
+  "tokenPairsAddressTD contracts tokenDepositAddress \<equiv> 
+     TokenDepositState.tokenPairs (the (tokenDepositState contracts tokenDepositAddress))"
+
+abbreviation tokenPairsAddressB :: "Contracts \<Rightarrow> address \<Rightarrow> address" where
+  "tokenPairsAddressB contracts bridgeAddress \<equiv> 
+     BridgeState.tokenPairs (the (bridgeState contracts bridgeAddress))"
+
+abbreviation tokenPairsStateTD :: "Contracts \<Rightarrow> address \<Rightarrow> TokenPairsState" where
+  "tokenPairsStateTD contracts tokenDepositAddress \<equiv>
+     the (tokenPairsState contracts (tokenPairsAddressTD contracts tokenDepositAddress))"
+
+abbreviation tokenPairsStateB :: "Contracts \<Rightarrow> address \<Rightarrow> TokenPairsState" where
+  "tokenPairsStateB contracts bridgeAddress \<equiv>
+     the (tokenPairsState contracts (tokenPairsAddressB contracts bridgeAddress))"
+
+abbreviation proofVerifierAddressB where
+  "proofVerifierAddressB contracts bridgeAddress \<equiv> 
+   BridgeState.proofVerifier (the (bridgeState contracts bridgeAddress))"
+
+abbreviation depositAddressB where
+  "depositAddressB contracts bridgeAddress \<equiv> 
+   BridgeState.deposit (the (bridgeState contracts bridgeAddress))"
 
 abbreviation getMinted where
   "getMinted state token \<equiv> lookupNat (originalToMinted state) token"
 
-abbreviation bridgeDead where
-  "bridgeDead contracts tokenDepositAddress \<equiv>
-   deadState (the (tokenDepositState contracts tokenDepositAddress)) \<noteq> 0"
-
 text \<open>read minted token for a given token using the given bridge address\<close>
-definition bridgeMintedToken :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address" where
-  "bridgeMintedToken contracts bridgeAddress token = 
-    (let state = the (bridgeState contracts bridgeAddress);
-         stateTokenPairs = the (tokenPairsState contracts (BridgeState.tokenPairs state))
-      in getMinted stateTokenPairs token)"
+abbreviation mintedTokenB :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address" where
+  "mintedTokenB contracts bridgeAddress token \<equiv> 
+   getMinted (tokenPairsStateB contracts bridgeAddress) token"
+
+text \<open>read minted token for a given token using the given token deposit address\<close>
+abbreviation mintedTokenTD :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address" where
+  "mintedTokenTD contracts bridgeAddress token \<equiv> 
+   getMinted (tokenPairsStateTD contracts bridgeAddress) token"
+
+text \<open>read the token balance of a given user account\<close>
+abbreviation accountBalance where
+ "accountBalance contracts token user \<equiv> balanceOf (the (ERC20state contracts token)) user"
+
+abbreviation bridgeAddressTD where
+  "bridgeAddressTD contracts address \<equiv> TokenDepositState.bridge (the (tokenDepositState contracts address))"
+
+abbreviation proofVerifierAddressTD where
+  "proofVerifierAddressTD contracts tokenDepositAddress \<equiv> 
+   TokenDepositState.proofVerifier (the (tokenDepositState contracts tokenDepositAddress))"
 
 end

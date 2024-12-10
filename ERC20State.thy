@@ -7,7 +7,7 @@ subsection \<open>callBalanceOf\<close>
 
 lemma callBalanceOf [simp]:
   assumes "callBalanceOf contracts token account = (Success, balance)"
-  shows "balanceOf (the (ERC20state contracts token)) account = balance"
+  shows "accountBalance contracts token account = balance"
   using assms
   unfolding callBalanceOf_def
   by (simp add: Let_def split: option.splits)
@@ -157,8 +157,8 @@ lemma callSafeTransferFromBalanceOfTo':
 lemma callSafeTransferFromBalanceOfOther [simp]:
   assumes "address' \<noteq> caller" "address' \<noteq> to"
   assumes "callSafeTransferFrom contracts token caller to amount = (Success, contracts')"
-  shows "balanceOf (the (ERC20state contracts' token)) address' = 
-         balanceOf (the (ERC20state contracts token)) address'"
+  shows "accountBalance contracts' token address' = 
+         accountBalance contracts token address'"
   using assms safeTransferFromBalanceOfOther[of address' caller to "the (ERC20state contracts' token)" "the (ERC20state contracts token)" amount]
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def  split: option.splits prod.splits if_split_asm)
@@ -242,8 +242,8 @@ lemma mintBalanceOfOther [simp]:
 
 lemma callMintBalanceOf [simp]:
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "balanceOf (the (ERC20state contracts' mintedToken)) account = 
-         balanceOf (the (ERC20state contracts mintedToken)) account + amount"
+  shows "accountBalance contracts' mintedToken account =
+         accountBalance contracts mintedToken account + amount"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: option.splits)
@@ -251,8 +251,8 @@ lemma callMintBalanceOf [simp]:
 lemma callMintBalanceOfOther [simp]:
   assumes "other \<noteq> account"
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "balanceOf (the (ERC20state contracts' mintedToken)) other =
-         balanceOf (the (ERC20state contracts mintedToken)) other"
+  shows "accountBalance contracts' mintedToken other = 
+         accountBalance contracts mintedToken other"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: option.splits)
@@ -321,6 +321,10 @@ subsection \<open>Total balance of a state\<close>
 definition totalBalance :: "ERC20State \<Rightarrow> nat" where
   "totalBalance state = mapping_value_sum (balances state)"
 
+abbreviation totalTokenBalance :: "Contracts \<Rightarrow> address \<Rightarrow> nat" where
+  "totalTokenBalance contracts token \<equiv>
+   totalBalance (the (ERC20state contracts token))"
+
 lemma totalBalance_addToBalance [simp]:
   assumes "finite (Mapping.keys (balances state))"
   shows "totalBalance (addToBalance state caller amount) = totalBalance state + amount"
@@ -331,8 +335,8 @@ lemma totalBalance_addToBalance [simp]:
 lemma callMint_total_balance [simp]:
   assumes "finite (Mapping.keys (balances ((the (ERC20state contracts token)))))"
   assumes "callMint contracts token caller amount = (Success, contracts')"
-  shows "totalBalance (the (ERC20state contracts' token)) =
-         totalBalance (the (ERC20state contracts token)) + amount"
+  shows "totalTokenBalance contracts' token = 
+         totalTokenBalance contracts token + amount"
   using assms
   unfolding callMint_def mint_def
   by (auto simp add: Let_def split: option.splits)
