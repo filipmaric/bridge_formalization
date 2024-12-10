@@ -21,6 +21,16 @@ lemma callLastStateI:
   unfolding callLastState_def
   by (auto split: option.splits)
 
+text \<open>lastUpdateTime\<close>
+
+lemma callLastUpdateTimeI:
+  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
+  shows "fst (callLastUpdateTime contracts (stateOracleAddressTD contracts address)) = Success"
+  using assms
+  unfolding callLastUpdateTime_def
+  by (simp split: option.splits)
+
+
 subsection \<open>update\<close>
 
 lemma callUpdateLastState [simp]:

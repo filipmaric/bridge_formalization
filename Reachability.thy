@@ -1207,6 +1207,121 @@ next
   qed
 qed
 
+lemma lastUpdateHappenedSteps:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "StateOracleState.lastState (the (stateOracleState contracts address)) \<noteq> 
+           StateOracleState.lastState (the (stateOracleState contracts' address))"
+  shows "\<exists> contractsU steps1 steps2 stateRoot. 
+                       reachableFrom contracts contractsU steps1 \<and> 
+                       stateRoot = generateStateRoot contractsU \<and>
+                       steps = steps2 @ [UPDATE address stateRoot] @ steps1 \<and>
+                       reachableFrom contractsU contracts' (steps2 @ [UPDATE address stateRoot]) \<and>
+                       (\<nexists> stateRoot'. UPDATE address stateRoot' \<in> set steps2)"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step  reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (UPDATE address' stateRoot')
+    show ?thesis
+    proof (cases "address = address'")
+      case True
+      then show ?thesis
+        using reachableFrom_step.hyps reachableFrom_step.prems UPDATE
+        by (rule_tac x="contracts'" in exI,
+            rule_tac x="steps" in exI,
+            rule_tac x="[]" in exI,
+            metis Cons_eq_appendI append_Nil empty_iff executeStep.simps(3) list.set(1) reachableFrom.reachableFrom_step reachableFrom_base updateSuccess)
+    next
+      case False
+      then have "lastState (the (stateOracleState contracts address)) \<noteq> lastState (the (stateOracleState contracts' address))"
+        by (metis UPDATE callUpdateOtherAddress executeStep.simps(3) local.reachableFrom_step(2) reachableFrom_step.prems)
+      then show ?thesis
+        using reachableFrom_step UPDATE False reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+        by force
+    qed
+  qed
+qed
+
+lemma lastUpdateHappenedSteps':
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<exists> stateRoot. UPDATE address stateRoot \<in> set steps"
+  shows "\<exists> contractsU steps1 steps2 stateRoot. 
+                       reachableFrom contracts contractsU steps1 \<and> 
+                       stateRoot = generateStateRoot contractsU \<and>
+                       steps = steps2 @ [UPDATE address stateRoot] @ steps1 \<and>
+                       reachableFrom contractsU contracts' (steps2 @ [UPDATE address stateRoot]) \<and>
+                       (\<nexists> stateRoot'. UPDATE address stateRoot' \<in> set steps2)"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+      by force
+  next
+    case (UPDATE address' stateRoot')
+    show ?thesis
+    proof (cases "address = address'")
+      case True
+      then show ?thesis
+        using reachableFrom_step.hyps reachableFrom_step.prems UPDATE
+        by (rule_tac x="contracts'" in exI,
+            rule_tac x="steps" in exI,
+            rule_tac x="[]" in exI,
+            metis Cons_eq_appendI append_Nil empty_iff executeStep.simps(3) list.set(1) reachableFrom.reachableFrom_step reachableFrom_base updateSuccess)
+    next
+      case False
+      then show ?thesis
+        using UPDATE reachableFrom_step reachableFrom.reachableFrom_step[OF _ reachableFrom_step.hyps(2)]
+        by force
+    qed
+  qed
+qed
+
 
 lemma reachableFromGetClaimNoClaim:
   assumes "reachableFrom contracts contracts' steps"

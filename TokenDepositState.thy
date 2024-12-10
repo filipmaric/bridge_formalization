@@ -1,8 +1,17 @@
 theory TokenDepositState
-  imports Main Definition More_Mapping ERC20State TokenPairsState StateOracleState
+  imports Main Definition More_Mapping ERC20State TokenPairsState StateOracleState BridgeState
 begin
 
 section \<open>TokenDeposit\<close>
+
+subsection \<open>lastValidState\<close>
+
+lemma lastValidStateI:
+  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
+  shows "fst (getLastValidStateTD contracts address) = Success"
+  using assms callLastStateI
+  unfolding lastValidState_def Let_def
+  by auto
 
 subsection \<open>getDeadStatus\<close>
 
@@ -91,6 +100,13 @@ lemma getDeadStatusInDeadState [simp]:
   using assms
   unfolding getDeadStatus_def callLastState_def
   by (auto split: if_split_asm option.splits prod.splits)
+
+lemma getDeadStatusI:
+  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
+  shows "fst (getDeadStatus contracts (the (tokenDepositState contracts address)) block) = Success"
+  using assms callLastStateI[OF assms(1)]  callLastUpdateTimeI[OF assms(1)]
+  unfolding getDeadStatus_def 
+  by (auto split: option.splits prod.splits if_split_asm)
 
 subsection \<open>deposit\<close>
 
@@ -714,6 +730,44 @@ lemma callCancelDepositWhileDeadVerifyClaimProof:
              stateRoot = snd (lastValidState contracts stateTokenDeposit)
           in verifyClaimProof () (bridge stateTokenDeposit) ID stateRoot proof = True"
   by (smt (verit, best) Status.simps(3) assms callCancelDepositWhileDeadCallVerifyClaimProof callVerifyClaimProof_def old.unit.exhaust option.case_eq_if)
+
+lemma callCancelDepositWhileDeadI:
+  assumes "tokenDepositState contracts address \<noteq> None"
+  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
+  assumes "proofVerifierState contracts (TokenDepositState.proofVerifier (the (tokenDepositState contracts address))) \<noteq> None"
+  assumes "ERC20state contracts token \<noteq> None"
+  assumes "getDeposit (the (tokenDepositState contracts address)) ID = hash3 (sender msg) token amount"
+  assumes "fst (snd (getDeadStatus contracts (the (tokenDepositState contracts address)) block)) = True"
+  assumes "bridgeDead contracts address \<longrightarrow> deadState (the (tokenDepositState contracts address)) = stateRoot"
+  assumes "\<not> bridgeDead contracts address \<longrightarrow> lastState (the (stateOracleState contracts (stateOracleAddressTD contracts address))) = stateRoot"
+  assumes "verifyClaimProof () (TokenDepositState.bridge (the (tokenDepositState contracts address))) ID stateRoot proof"
+  assumes "amount \<le> balanceOf (the (ERC20state contracts token)) address"
+  assumes "sender msg \<noteq> address"
+  shows "fst (callCancelDepositWhileDead contracts address msg block ID token amount proof) = Success"
+proof-
+  define stateTD where "stateTD = the (tokenDepositState contracts address)"
+
+  have "lastValidState contracts stateTD = (Success, stateRoot)"
+    using assms lastValidStateI[OF assms(2)]
+    unfolding stateTD_def
+    by (auto simp add: lastValidState_def callLastState_def)
+  moreover
+  have "callVerifyClaimProof contracts (TokenDepositState.proofVerifier stateTD) (bridge stateTD) ID stateRoot proof =
+         Success"
+    unfolding stateTD_def
+    using callVerifyClaimProofI[OF assms(3)] assms
+    by presburger
+  moreover
+  have "fst (callSafeTransferFrom contracts token address (sender msg) amount) = Success"
+    using assms callSafeTransferFromI
+    by (metis option.collapse)
+  ultimately
+  show ?thesis
+    using assms getDeadStatusI[OF assms(2), of block] 
+    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def stateTD_def
+    by (auto split: option.splits prod.splits if_split_asm)
+qed
+
 
 subsection \<open>Withdraw while dead\<close>
 

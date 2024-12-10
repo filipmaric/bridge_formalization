@@ -31,4 +31,30 @@ proof-
     by auto
 qed
 
+lemma append_subset: 
+  assumes "xs @ ys = xs' @ ys'"
+  assumes "length ys' \<ge> length ys"
+  shows "set xs' \<subseteq> set xs"
+proof
+  fix x
+  assume "x \<in> set xs'"
+  then obtain n where "x = xs' ! n" "n < length xs'"
+    by (metis in_set_conv_nth)
+  moreover
+  have "length xs + length ys = length xs' + length ys'"
+    using assms(1)
+    by (metis length_append)
+  then have "length xs \<ge> length xs'"
+    using assms(2)
+    by auto
+  ultimately
+  have "x = xs ! n" "n < length xs"
+    using assms(1)[symmetric] 
+    using nth_append[of xs' ys' n]
+    using nth_append[of xs ys n]
+    by auto
+  then show "x \<in> set xs"
+    by auto
+qed
+
 end

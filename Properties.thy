@@ -14,6 +14,14 @@ theorem noDepositBridgeDead:
   using assms callDepositFailsInDeadState reachableFromBridgeDead
   by blast
 
+lemma noDepositAfterGetDepositNonzero:
+  assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
+  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<noteq> 0"
+  assumes "reachableFrom contracts contracts' steps"
+  shows False
+  using assms
+  by (smt (verit, best) executeStep.simps(1) callDepositFailsInDeadState callDepositWrittenHash fst_conv reachableFromGetDepositBridgeNotDead reachableFromStepInSteps)
+
 (* ------------------------------------------------------------------------------------ *)
 text \<open>No cancel before the bridge dies\<close>
 lemma noCancelBeforeBridgeDead:
@@ -660,7 +668,95 @@ proof-
     by blast
 qed
 
+lemma UpdateBetweenDepositAndClaim:
+  assumes steps: "steps = [CLAIM bridgeAddress caller' ID token' amount' proof'] @ steps2 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps1" 
+  assumes "reachableFrom contractsI contracts steps" 
+  shows "\<exists> stateRoot. UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot \<in> set steps2"
+proof-
+  interpret Init: Init where contractsI = contracts and stepsInit = "steps @ stepsInit"
+    using Init'_axioms Init_axioms.intro Init_def assms(2) reachableFromTrans by auto
+
+  let ?DEPOSIT_step = "DEPOSIT tokenDepositAddress caller ID token amount"
+  let ?CLAIM_step = "CLAIM bridgeAddress caller' ID token' amount' proof'"
+  obtain contractsD' contractsD contractsC' contractsC where reach:
+   "reachableFrom contractsI contractsD' steps1"
+   "reachableFrom contractsD' contractsD [?DEPOSIT_step]"
+   "reachableFrom contractsD contractsC' steps2"
+   "reachableFrom contractsC' contractsC [?CLAIM_step]"
+    using assms
+    by (meson reachableFromAppend)
+
+  let ?soAddress = "stateOracleAddressB contractsInit bridgeAddress"
+  have *: "\<exists> stateRoot. UPDATE ?soAddress stateRoot \<in> set (tl steps @ stepsInit)"
+    by (metis Nil_is_append_conv firstUpdate last_appendR last_in_set)
+
+  have **: "reachableFrom contractsInit contractsC' (tl steps @ stepsInit)"
+    by (smt (verit, ccfv_threshold) Cons_eq_appendI list.sel(3) reach(1) reach(2) reach(3) reachableFromInitI reachableFromTrans self_append_conv2 steps)
+
+  obtain contracts' steps1' steps2' stateRoot
+    where "reachableFrom contractsInit contracts' steps1'" 
+          "stateRoot = generateStateRoot contracts'"
+          "tl steps @ stepsInit = steps2' @ [UPDATE ?soAddress stateRoot] @ steps1'"
+          "\<nexists> stateRoot'. UPDATE ?soAddress stateRoot' \<in> set steps2'" and
+  reach': "reachableFrom contracts' contractsC' (steps2' @ [UPDATE ?soAddress stateRoot])"
+    using lastUpdateHappenedSteps'[OF ** *]
+    by auto
+
+  then obtain contracts1 blockU blockNumU where
+    "callUpdate contracts' ?soAddress blockU blockNumU stateRoot = (Success, contracts1)"
+    "reachableFrom contracts1 contractsC' steps2'"
+    by (metis executeStep.simps(3) reachableFromAppend reachableFromSingleton)
+
+  interpret LU: LastUpdate where 
+        stateRoot=stateRoot and 
+        contractsLastUpdate=contracts1 and 
+        blockLastUpdate=blockU and blockNumLastUpdate=blockNumU and
+        contractsLastUpdate'=contracts' and contractsLU=contractsC' and stepsNoUpdate = steps2'
+  proof
+    show "properSetup contracts' tokenDepositAddress bridgeAddress"
+      using \<open>reachableFrom contractsInit contracts' steps1'\<close> by auto
+  next
+    show "let stateOracleAddress = stateOracleAddressB contracts' bridgeAddress
+           in callUpdate contracts' stateOracleAddress blockU blockNumU stateRoot =
+              (Success, contracts1)"
+      by (metis HashProofVerifier.reachableFromBridgeStateOracle HashProofVerifier_axioms \<open>callUpdate contracts' (stateOracleAddressB contractsInit bridgeAddress) blockU blockNumU stateRoot = (Success, contracts1)\<close> \<open>reachableFrom contractsInit contracts' steps1'\<close>)
+  next
+    show "reachableFrom contracts1 contractsC' steps2'"
+      by fact
+  next
+    show "let stateOracleAddress = stateOracleAddressB contracts1 bridgeAddress
+           in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set steps2'"
+      using \<open>\<nexists>stateRoot'. UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot' \<in> set steps2'\<close> \<open>callUpdate contracts' (stateOracleAddressB contractsInit bridgeAddress) blockU blockNumU stateRoot = (Success, contracts1)\<close> \<open>reachableFrom contractsInit contracts' steps1'\<close> by auto
+  qed
+
+  have getDeposit: "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = hash3 caller' token' amount'"
+    using LU.callClaimGetDeposit
+    by (metis executeStep.simps(2) reach(4) reachableFromSingleton senderMessage)
+
+  have "steps2 @ [?DEPOSIT_step] @ steps1 @ stepsInit = steps2' @ [UPDATE ?soAddress stateRoot] @ steps1'" (is "?lhs = ?rhs")
+    using steps \<open>tl steps @ stepsInit = steps2' @ [UPDATE ?soAddress stateRoot] @ steps1'\<close> by auto
+  moreover
+  have "length steps1' \<ge> length (steps1 @ stepsInit)"
+  proof (rule ccontr)
+    assume "\<not> ?thesis"
+    then have "length (steps1 @ stepsInit) \<ge> length steps1'"
+      by simp
+    then have "?DEPOSIT_step \<in> set (steps2' @ [UPDATE ?soAddress stateRoot])"
+      using \<open>?lhs = ?rhs\<close> append_subset(1)[where xs="steps2' @ [UPDATE ?soAddress stateRoot]" and xs'="steps2 @ [?DEPOSIT_step]" and ys=steps1' and ys'="steps1@stepsInit"]
+      by auto
+    then show False
+      using getDeposit reach' noDepositAfterGetDepositNonzero hash3_nonzero
+      by metis
+  qed
+  then have "UPDATE ?soAddress stateRoot \<in> set ([?DEPOSIT_step] @ rev steps2)"
+    using \<open>?lhs = ?rhs\<close> append_subset(1)[where ys="steps1@stepsInit" and ys'="steps1'" and xs="steps2 @ [?DEPOSIT_step]" and xs'="steps2' @ [UPDATE ?soAddress stateRoot]"]
+    by auto
+  then show ?thesis
+    by force
+qed
+
 end
+
 
 context StrongHashProofVerifier
 begin
@@ -2415,77 +2511,6 @@ qed
 
 end
 
-context StrongHashProofVerifier
-begin
-
-lemma callLastUpdateTimeI:
-  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
-  shows "fst (callLastUpdateTime contracts (stateOracleAddressTD contracts address)) = Success"
-  using assms
-  unfolding callLastUpdateTime_def
-  by (simp split: option.splits)
-
-lemma lastValidStateI:
-  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
-  shows "fst (getLastValidStateTD contracts address) = Success"
-  using assms callLastStateI
-  unfolding lastValidState_def Let_def
-  by auto
-
-lemma getDeadStatusI:
-  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
-  shows "fst (getDeadStatus contracts (the (tokenDepositState contracts address)) block) = Success"
-  using assms callLastStateI[OF assms(1)]  callLastUpdateTimeI[OF assms(1)]
-  unfolding getDeadStatus_def 
-  by (auto split: option.splits prod.splits if_split_asm)
-
-lemma callVerifyClaimProofI:
-  assumes "proofVerifierState contracts proofVerifierAddress \<noteq> None"
-  assumes "verifyClaimProof () bridgeAddress ID stateRoot proof"
-  shows "callVerifyClaimProof contracts proofVerifierAddress bridgeAddress ID stateRoot proof = Success"
-  using assms
-  unfolding callVerifyClaimProof_def
-  by (auto split: option.splits prod.splits)
-
-
-lemma callCancelDepositWhileDeadI:
-  assumes "tokenDepositState contracts address \<noteq> None"
-  assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
-  assumes "proofVerifierState contracts (TokenDepositState.proofVerifier (the (tokenDepositState contracts address))) \<noteq> None"
-  assumes "ERC20state contracts token \<noteq> None"
-  assumes "getDeposit (the (tokenDepositState contracts address)) ID = hash3 (sender msg) token amount"
-  assumes "fst (snd (getDeadStatus contracts (the (tokenDepositState contracts address)) block)) = True"
-  assumes "bridgeDead contracts address \<longrightarrow> deadState (the (tokenDepositState contracts address)) = stateRoot"
-  assumes "\<not> bridgeDead contracts address \<longrightarrow> lastState (the (stateOracleState contracts (stateOracleAddressTD contracts address))) = stateRoot"
-  assumes "verifyClaimProof () (TokenDepositState.bridge (the (tokenDepositState contracts address))) ID stateRoot proof"
-  assumes "amount \<le> balanceOf (the (ERC20state contracts token)) address"
-  assumes "sender msg \<noteq> address"
-  shows "fst (callCancelDepositWhileDead contracts address msg block ID token amount proof) = Success"
-proof-
-  define stateTD where "stateTD = the (tokenDepositState contracts address)"
-
-  have "lastValidState contracts stateTD = (Success, stateRoot)"
-    using assms lastValidStateI[OF assms(2)]
-    unfolding stateTD_def
-    by (auto simp add: lastValidState_def callLastState_def)
-  moreover
-  have "callVerifyClaimProof contracts (TokenDepositState.proofVerifier stateTD) (bridge stateTD) ID stateRoot proof =
-         Success"
-    unfolding stateTD_def
-    using callVerifyClaimProofI[OF assms(3)] assms
-    by presburger
-  moreover
-  have "fst (callSafeTransferFrom contracts token address (sender msg) amount) = Success"
-    using assms callSafeTransferFromI
-    by (metis option.collapse)
-  ultimately
-  show ?thesis
-    using assms getDeadStatusI[OF assms(2), of block] 
-    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def stateTD_def
-    by (auto split: option.splits prod.splits if_split_asm)
-qed
-
-end
 
 context StrongHashProofVerifier
 begin
@@ -2524,6 +2549,11 @@ proof-
     using hash3_nonzero[of caller token amount] *
     by (simp add: \<open>steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2\<close> reachableFromGetDepositBridgeNoCancel)
 qed
+
+end
+
+context InitFirstUpdate
+begin
 
 end
 

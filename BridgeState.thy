@@ -295,6 +295,17 @@ proof-
     by (auto simp add: Let_def split: option.splits prod.splits if_split_asm) (*FIXME*)
 qed
 
+subsection \<open>callVerifyClaimProof\<close>
+
+lemma callVerifyClaimProofI:
+  assumes "proofVerifierState contracts proofVerifierAddress \<noteq> None"
+  assumes "verifyClaimProof () bridgeAddress ID stateRoot proof"
+  shows "callVerifyClaimProof contracts proofVerifierAddress bridgeAddress ID stateRoot proof = Success"
+  using assms
+  unfolding callVerifyClaimProof_def
+  by (auto split: option.splits prod.splits)
+
+
 end
 
 end
