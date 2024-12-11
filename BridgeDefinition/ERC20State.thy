@@ -3,6 +3,15 @@ theory ERC20State
 begin
 section \<open>IERC20\<close>
 
+lemma ERC20constructorBalances [simp]:
+  shows "balances ERC20Constructor = Mapping.empty"
+  by (simp add: ERC20Constructor_def)
+
+lemma ERC20constructorBalanceOf [simp]:
+  shows "balanceOf ERC20Constructor account = 0"
+  by (simp add: balanceOf_def)
+
+
 subsection \<open>callBalanceOf\<close>
 
 lemma callBalanceOf [simp]:
@@ -362,6 +371,14 @@ proof-
     unfolding safeTransferFrom_def transferBalance_def
     by (auto split: if_split_asm)
 qed
+
+lemma totalBalanceGeqUserBalance:
+  assumes "finite (Mapping.keys (balances state))"
+          "user \<in> Mapping.keys (balances state)"
+  shows "totalBalance state \<ge> balanceOf state user"
+  unfolding totalBalance_def balanceOf_def
+  using mapping_value_sum_geq_entry[OF assms]
+  by simp
 
 lemma callMint_total_balance [simp]:
   assumes "finite (Mapping.keys (balances ((the (ERC20state contracts token)))))"

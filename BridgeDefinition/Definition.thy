@@ -618,7 +618,12 @@ definition withdrawWhileDead where
             (status, state', contracts)
          else if \<not> dead then 
             (Fail ''Bridge must be dead'', state', contracts)
-         else let status = callVerifyBalanceProof contracts (TokenDepositState.proofVerifier state') token (sender msg) amount (deadState state') proof
+         else let (status, mintedToken) = callOriginalToMinted contracts (TokenDepositState.tokenPairs state') token
+                in if status \<noteq> Success then 
+                      (status, state, contracts)
+                   else if mintedToken = 0 then
+                      (Fail ''Not supported token'', state, contracts) 
+         else let status = callVerifyBalanceProof contracts (TokenDepositState.proofVerifier state') mintedToken (sender msg) amount (deadState state') proof
                in if status \<noteq> Success then
                  (status, state', contracts)
                else let withdrawHash = hash2 (sender msg) token
@@ -749,10 +754,11 @@ abbreviation mintedTokenB :: "Contracts \<Rightarrow> address \<Rightarrow> addr
   "mintedTokenB contracts bridgeAddress token \<equiv> 
    getMinted (tokenPairsStateB contracts bridgeAddress) token"
 
-text \<open>read minted token for a given token using the given token deposit address\<close>
+text \<open>read minted token for a given token using the given token pairs contract address\<close>
 abbreviation mintedTokenTD :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address" where
-  "mintedTokenTD contracts bridgeAddress token \<equiv> 
-   getMinted (tokenPairsStateTD contracts bridgeAddress) token"
+  "mintedTokenTD contracts tokenDepositAddress token \<equiv> 
+   getMinted (tokenPairsStateTD contracts tokenDepositAddress) token"
+
 
 text \<open>read the token balance of a given user account\<close>
 abbreviation accountBalance where

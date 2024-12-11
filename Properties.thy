@@ -43,6 +43,26 @@ next
     by (metis executeStep.simps(4) set_ConsD)
 qed
 
+text \<open>No withdraw before the bridge dies\<close>
+lemma noWithdrawBeforeBridgeDead:
+  assumes "reachableFrom contractsInit contracts steps"
+          "\<not> bridgeDead contracts tokenDepositAddress"
+  shows "\<nexists> step. step \<in> set steps \<and> (\<exists> caller token amount proof. step = WITHDRAW tokenDepositAddress caller token amount proof)"
+  using assms
+proof (induction contractsInit contracts steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts' contractsInit contracts blockNum block step)
+  have notDead: "\<not> bridgeDead contracts tokenDepositAddress"
+    using reachableFrom.reachableFrom_step reachableFromBridgeDead reachableFrom_base reachableFrom_step.hyps(2) reachableFrom_step.prems
+    by blast
+  then show ?case
+    using reachableFrom_step callWithdrawWhileDeadBridgeDead
+    by (metis executeStep.simps(5) set_ConsD)
+qed
+
 end
 
 context StrongHashProofVerifier
@@ -510,6 +530,17 @@ lemma properSetupI [simp]:
   using properSetupInit properSetupReachable reachableFromInitI
   by blast
 
+lemma stateOracleAddressBI [simp]:
+  shows "stateOracleAddressB contractsI bridgeAddress =
+         stateOracleAddressB contractsInit bridgeAddress"
+  using reachableFromBridgeStateOracle reachableFromInitI by blast
+
+lemma stateOracleAddressTDI [simp]:
+  shows "stateOracleAddressTD contractsI tokenDepositAddress =
+         stateOracleAddressTD contractsInit tokenDepositAddress"
+  using reachableFromDepositStateOracle reachableFromInitI
+  by blast
+
 lemma lastStateTDZeroInit [simp]:
   shows "lastStateTD contractsInit tokenDepositAddress = 0"
   by (metis lastStateBZero properSetupInit properSetup_getLastState)
@@ -530,16 +561,21 @@ lemma tokenDepositTokenDepositAddress [simp]:
   shows "BridgeState.deposit (the (bridgeState contractsI bridgeAddress)) = tokenDepositAddress"
   by (meson properSetupI properSetup_def)
 
-lemma stateOracleAddressBI [simp]:
-  shows "stateOracleAddressB contractsI bridgeAddress =
-         stateOracleAddressB contractsInit bridgeAddress"
-  using reachableFromBridgeStateOracle reachableFromInitI by blast
+lemma tokenPairsStateINotNone [simp]:
+  shows "tokenPairsState contractsI (tokenPairsAddressTD contractsI tokenDepositAddress) \<noteq> None"
+  by (metis properSetupI properSetup_def)
 
-lemma stateOracleAddressTDI [simp]:
-  shows "stateOracleAddressTD contractsI tokenDepositAddress =
-         stateOracleAddressTD contractsInit tokenDepositAddress"
-  using reachableFromDepositStateOracle reachableFromInitI
-  by blast
+lemma stateOracleStateINotNone [simp]:
+  shows "stateOracleState contractsI (stateOracleAddressTD contractsInit tokenDepositAddress) \<noteq> None"
+  by (metis properSetupI properSetup_def stateOracleAddressTDI)
+
+lemma stateOracleStateInitNotNone [simp]:
+  shows "stateOracleState contractsInit (stateOracleAddressTD contractsInit tokenDepositAddress) \<noteq> None"
+  by (metis properSetupInit properSetup_def)
+
+lemma proofVerifierStateNotNone [simp]:
+  shows "proofVerifierState contractsI (proofVerifierAddressTD contractsI tokenDepositAddress) \<noteq> None"
+  by (metis properSetupI properSetup_def)
 
 lemma ERC20stateINonNone [simp]:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
@@ -547,8 +583,41 @@ lemma ERC20stateINonNone [simp]:
   using assms
   by (meson reachableFromERC20State properToken_def reachableFromInitI)
 
+lemma mintedTokenBI [simp]:
+  shows "mintedTokenB contractsI bridgeAddress token = 
+         mintedTokenB contractsInit bridgeAddress token"
+  using reachableFromBridgeMintedToken reachableFromInitI by blast
+
+lemma mintedTokenTDI [simp]:
+  shows "mintedTokenTD contractsI tokenDepositAddress token = 
+         mintedTokenTD contractsInit tokenDepositAddress token"
+  by (smt (verit, best) properSetup_def reachableFromBridgeTokenPairs reachableFromITokenPairs properSetupI properSetupInit reachableFromInitI)
+
+lemma ERC20StateMintedTokenINotNone [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "ERC20state contractsI (mintedTokenTD contractsInit tokenDepositAddress token) \<noteq> None"
+  using assms
+  by (metis mintedTokenTDI properTokenReachable properSetupI properSetup_def properToken_def reachableFromInitI)
+
+lemma mintedTokenITDB:
+  shows "mintedTokenB contractsInit bridgeAddress token = mintedTokenTD contractsInit tokenDepositAddress token"
+  by (metis properSetupInit properSetup_def)
+
+lemma mintedTokenBInitNonNone [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "mintedTokenB contractsInit bridgeAddress token \<noteq> 0"
+  using assms
+  by (simp add: Let_def properToken_def)
+
+lemma mintedTokenTDInitNonNone [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "mintedTokenTD contractsInit tokenDepositAddress token \<noteq> 0"
+  using assms
+  unfolding properToken_def Let_def
+  by (simp add: mintedTokenITDB)
 
 end
+
 
 locale InitUpdate = Init where contractsI=contractsUpdate' + Update
 begin
@@ -1960,7 +2029,7 @@ next
       have "caller' \<noteq> tokenDepositAddress"
         sorry
       then show ?thesis
-        using callCancelDepositWhileDead_balanceOfOther callCancelDepositOtherToken 
+        using callCancelDepositWhileDead_balanceOfOther callCancelDepositWhileDeadOtherToken 
         using False CANCEL reachableFrom_step notDead
         by (metis Message.select_convs(1) Step.simps(11) depositedTokenAmoutConsOther executeStep.simps(4) message_def)
     qed
@@ -2093,16 +2162,17 @@ theorem withdrawSufficientBalance:
   assumes withdraw:
     "callWithdrawWhileDead contractsLVS tokenDepositAddress msg block token amount proof = (Success, contractsW)"
   \<comment> \<open>Caller had sufficient balance\<close>
-  shows "callBalanceOf contractsUpdate' token (sender msg) = (Success, amount)"
+  shows "callBalanceOf contractsUpdate' (mintedTokenTD contractsInit tokenDepositAddress token) (sender msg) = (Success, amount)"
 proof-
-  have "verifyBalanceProof () token (sender msg) amount stateRoot proof"
+  let ?mintedToken = "mintedTokenTD contractsInit tokenDepositAddress token"
+  have "verifyBalanceProof () ?mintedToken (sender msg) amount stateRoot proof"
     using callWithdrawWhileDeadVerifyBalanceProof[OF withdraw]
     using getLastValidStateLVS
     by (simp add: Let_def)
-  then have "balanceOf (the (ERC20state contractsUpdate' token)) (sender msg) = amount"
+  then have "balanceOf (the (ERC20state contractsUpdate' ?mintedToken)) (sender msg) = amount"
     using assms
     using verifyBalanceProofE[of contractsUpdate' stateRoot]
-    by auto
+    by (smt (verit, ccfv_SIG) properSetup_def reachableFromERC20State generateStateRootUpdate' option.exhaust_sel properSetupInit properToken_def reachableFromInitI)
   then show ?thesis
     using assms
     unfolding callBalanceOf_def
@@ -2170,8 +2240,12 @@ lemma canceledTokenAmountBridgeNotDead:
   unfolding canceledTokenAmount_def tokenCancels_def
   by (metis filter_False isTokenCancel.elims(2) list.simps(8) sum_list.Nil)
 
+fun isTokenWithdrawal where
+  "isTokenWithdrawal address token (WITHDRAW address' caller token' amount proof) \<longleftrightarrow> address' = address \<and> token' = token"
+| "isTokenWithdrawal address token _ = False"
+
 definition tokenWithdrawals where
-  "tokenWithdrawals tokenDepositAddress token steps = filter (\<lambda> step. case step of WITHDRAW address' caller token' amount proof \<Rightarrow> tokenDepositAddress = address' \<and> token = token' | _ \<Rightarrow> False) steps"
+  "tokenWithdrawals tokenDepositAddress token steps = filter (isTokenWithdrawal tokenDepositAddress token) steps"
 
 definition withdrawnTokenAmount where
   "withdrawnTokenAmount tokenDepositAddress token steps = 
@@ -2204,14 +2278,16 @@ lemma withdrawnTokenAmountBridgeNotDead:
           "\<not> bridgeDead contracts tokenDepositAddress"
     shows "withdrawnTokenAmount tokenDepositAddress token steps = 0"
   using assms
-  sorry
-
+  using assms noWithdrawBeforeBridgeDead[OF assms]
+  unfolding withdrawnTokenAmount_def tokenWithdrawals_def
+  by (metis filter_False isTokenWithdrawal.elims(2) list.simps(8) sum_list.Nil)
+ 
 end
 
 context Init
 begin
 
-lemma tokenDepositBalanceCanceledWithdrawnDeposited:
+lemma tokenDepositBalanceInvariant:
   shows "tokenDepositBalance contractsI token tokenDepositAddress + 
          canceledTokenAmount tokenDepositAddress token stepsInit + 
          withdrawnTokenAmount tokenDepositAddress token stepsInit = 
@@ -2296,7 +2372,7 @@ next
         sorry
       then show ?thesis
         using False CANCEL * reachableFrom_step.hyps 
-        using callCancelDepositWhileDead_balanceOfOther callCancelDepositOtherToken
+        using callCancelDepositWhileDead_balanceOfOther callCancelDepositWhileDeadOtherToken
         by (smt (verit, best) HashProofVerifier.Step.distinct(25) HashProofVerifier_axioms Step.simps(11) canceledTokenAmountConsCancelOther depositedTokenAmoutConsOther executeStep.simps(4) senderMessage withdrawnTokenAmoutConsOther)
     qed
   next
@@ -2702,7 +2778,7 @@ qed
 context BridgeDead
 begin
 
-lemma canceledAmountInvariant:
+lemma canceledAmountInvariant':
   shows
   "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit  ((stepsBD @ [stepDeath]) @ stepsNoUpdate @ [UPDATE_step] @ stepsInit) + 
    canceledTokenAmount tokenDepositAddress token ((stepsBD @ [stepDeath]) @ stepsNoUpdate @ [UPDATE_step] @ stepsInit) = 
@@ -2873,9 +2949,336 @@ next
       by simp
   qed
 qed
+
+lemma canceledAmountInvariant:
+  shows
+  "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD + 
+   canceledTokenAmount tokenDepositAddress token stepsAllBD = 
+   nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+  unfolding stepsAllBD_def
+  using canceledAmountInvariant'[of token]
+  by auto  
 end
 
+context HashProofVerifier
+begin
 
+fun isTokenTransfer where
+  "isTokenTransfer bridgeAddress token (TRANSFER address' caller receiver token' amount) \<longleftrightarrow> address' = bridgeAddress \<and> token' = token"
+| "isTokenTransfer bridgeAddress token _ = False"
+
+definition tokenClaimsAndTransfers where
+  "tokenClaimsAndTransfers bridgeAddress token steps = 
+      filter (\<lambda> step. isTokenClaim bridgeAddress token step \<or> 
+                      isTokenTransfer bridgeAddress token step) steps"
+
+
+lemma tokenClaimsAndTransfersNil [simp]:
+  shows "tokenClaimsAndTransfers bridgeAddress token [] = []"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsOther [simp]: 
+  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM bridgeAddress caller' ID' token amount' proof'"  
+  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER bridgeAddress caller' receiver' token amount'"  
+  shows "tokenClaimsAndTransfers bridgeAddress token (step # steps) = 
+         tokenClaimsAndTransfers bridgeAddress token steps"
+  using assms
+  by (cases step) (auto simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsClaim [simp]: 
+  shows "tokenClaimsAndTransfers bridgeAddress token (CLAIM bridgeAddress caller ID token amount proof # steps) = 
+         CLAIM bridgeAddress caller ID token amount proof # tokenClaimsAndTransfers bridgeAddress token steps"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsTransfer [simp]: 
+  shows "tokenClaimsAndTransfers bridgeAddress token (TRANSFER bridgeAddress caller receiver token amount # steps) = 
+         TRANSFER bridgeAddress caller receiver token amount # tokenClaimsAndTransfers bridgeAddress token steps"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+definition tokenClaimsAndTransferBalance_fun where
+  "tokenClaimsAndTransferBalance_fun step state = 
+       (case step of CLAIM address' caller' ID' token' amount' proof' \<Rightarrow> addToBalance state caller' amount' 
+                   | TRANSFER address' caller' receiver' token' amount' \<Rightarrow> transferBalance state caller' receiver' amount'
+                   | _ \<Rightarrow> state)"
+
+lemma tokenClaimsAndTransferBalance_funFiniteKeys [simp]:
+  assumes "finite (Mapping.keys (balances state))"
+  shows "finite (Mapping.keys (balances (tokenClaimsAndTransferBalance_fun step state)))"
+  using assms
+  by (cases step) (auto simp add: tokenClaimsAndTransferBalance_fun_def addToBalance_def transferBalance_def removeFromBalance_def)
+
+definition tokenClaimsAndTransferBalance' :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
+  "tokenClaimsAndTransferBalance' address token steps = 
+    foldr tokenClaimsAndTransferBalance_fun steps ERC20Constructor"
+
+definition tokenClaimsAndTransferBalance :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
+ "tokenClaimsAndTransferBalance bridgeAddress token steps = 
+  tokenClaimsAndTransferBalance' bridgeAddress token (tokenClaimsAndTransfers bridgeAddress token steps)"
+
+lemma tokenClaimsAndTransferBalance'Nil [simp]:
+  shows "tokenClaimsAndTransferBalance' bridgeAddress token [] = ERC20Constructor"
+  by (simp add: tokenClaimsAndTransferBalance'_def)
+
+lemma tokenClaimsAndTransferBalanceCons:
+ "tokenClaimsAndTransferBalance' bridgeAddress token (step # steps) = 
+  tokenClaimsAndTransferBalance_fun step (tokenClaimsAndTransferBalance' bridgeAddress token steps)"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance'_finiteKeys [simp]:
+  shows "finite (Mapping.keys (balances (tokenClaimsAndTransferBalance' bridgeAddress token steps)))"
+  by (induction steps) (auto simp add: tokenClaimsAndTransferBalanceCons)
+
+lemma tokenClaimsAndTransferBalanceNil [simp]:
+  shows "tokenClaimsAndTransferBalance bridgeAddress token [] = ERC20Constructor"
+  by (simp add: tokenClaimsAndTransferBalance_def)
+
+lemma tokenClaimsAndTransferBalanceConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM bridgeAddress caller' ID' token amount' proof'"  
+  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER bridgeAddress caller' receiver' token amount'"  
+  shows "tokenClaimsAndTransferBalance bridgeAddress token (step # steps) = 
+         tokenClaimsAndTransferBalance bridgeAddress token steps"
+  using assms
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance'ConsClaim [simp]:
+  shows "tokenClaimsAndTransferBalance' bridgeAddress token (CLAIM bridgeAddress caller ID token amount proof # steps) = 
+         addToBalance (tokenClaimsAndTransferBalance' bridgeAddress token steps) caller amount"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by (simp add: tokenClaimsAndTransferBalance_fun_def)
+
+lemma tokenClaimsAndTransferBalanceConsClaim [simp]:
+  shows "tokenClaimsAndTransferBalance bridgeAddress token (CLAIM bridgeAddress caller ID token amount proof # steps) = 
+         addToBalance (tokenClaimsAndTransferBalance bridgeAddress token steps) caller amount"
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance'ConsTransfer [simp]:
+  shows "tokenClaimsAndTransferBalance' bridgeAddress token (TRANSFER bridgeAddress caller receiver token amount # steps) = 
+         transferBalance (tokenClaimsAndTransferBalance' bridgeAddress token steps) caller receiver amount"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by (simp add: tokenClaimsAndTransferBalance_fun_def)
+
+lemma tokenClaimsAndTransferBalanceConsTransfer [simp]:
+  shows "tokenClaimsAndTransferBalance bridgeAddress token (TRANSFER bridgeAddress caller receiver token amount # steps) = 
+         transferBalance (tokenClaimsAndTransferBalance bridgeAddress token steps) caller receiver amount"
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance_finiteKeys [simp]:
+  shows "finite (Mapping.keys (balances (tokenClaimsAndTransferBalance bridgeAddress token steps)))"
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+definition nonWithdrawnTokenClaimsAndTransferBalance_fun where
+  "nonWithdrawnTokenClaimsAndTransferBalance_fun tokenDepositAddress token step state = 
+    (case step of WITHDRAW address' caller' token' amount' proof' \<Rightarrow> 
+                    if address' = tokenDepositAddress \<and> token' = token \<and> balanceOf state caller' = amount' then 
+                       removeFromBalance state caller' amount'
+                    else
+                       state
+                   | _ \<Rightarrow> state)"
+
+definition nonWithdrawnTokenClaimsAndTransferBalance where
+  "nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps = 
+    foldr (nonWithdrawnTokenClaimsAndTransferBalance_fun tokenDepositAddress token) steps (tokenClaimsAndTransferBalance bridgeAddress token stepsBefore)"
+
+definition nonWithdrawnClaimedBeforeDeathAmount where
+  "nonWithdrawnClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore steps = 
+   totalBalance (nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps)"
+
+lemma nonWithdrawnTokenClaimsAndTransferBalance_funFiniteKeys [simp]:
+  assumes "finite (Mapping.keys (balances state))"
+  shows "finite (Mapping.keys (balances (nonWithdrawnTokenClaimsAndTransferBalance_fun address token step state)))"
+  using assms
+  by (cases step, auto simp add: nonWithdrawnTokenClaimsAndTransferBalance_fun_def removeFromBalance_def)
+
+lemma nonWithdrawnTokenClaimsAndTransferBalanceNil [simp]:
+  shows "nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore [] = tokenClaimsAndTransferBalance bridgeAddress token stepsBefore"
+  by (simp add: nonWithdrawnTokenClaimsAndTransferBalance_def)
+
+lemma nonWithdrawnTokenClaimsAndTransferBalanceCons:
+ "nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore (step # steps) = 
+  nonWithdrawnTokenClaimsAndTransferBalance_fun tokenDepositAddress token step (nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps)"
+  unfolding nonWithdrawnTokenClaimsAndTransferBalance_def
+  by simp
+
+lemma nonWithdrawnTokenClaimsAndTransferBalance_finiteKeys [simp]:
+  shows "finite (Mapping.keys (balances (nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps)))"
+  by (induction steps) (auto simp add: nonWithdrawnTokenClaimsAndTransferBalanceCons)
+
+lemma nonWithdrawnTokenClaimsAndTransferBalanceNoWithdraw:
+  assumes "balanceOf (tokenClaimsAndTransferBalance bridgeAddress token stepsBefore) caller = amount"
+  assumes "\<nexists>amount proof. WITHDRAW tokenDepositAddress caller token amount proof \<in> set steps"
+  shows "balanceOf (nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps) caller = amount"
+  using assms
+proof (induction steps)
+  case Nil
+  then show ?case
+    by simp
+next
+  case (Cons step steps)
+  then have "balanceOf (nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsBefore steps) caller = amount"
+    by simp
+  then show ?case
+    using Cons.prems
+    by (cases step, auto simp add: nonWithdrawnTokenClaimsAndTransferBalanceCons nonWithdrawnTokenClaimsAndTransferBalance_fun_def)
+qed
+
+lemma callTransferBalanceOfOther:
+  assumes "other \<noteq> caller" "other \<noteq> receiver"
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "accountBalance contracts' mintedToken other =
+         accountBalance contracts mintedToken other"
+proof-
+  have "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms callTransferSafeTransferFrom by blast
+  then show ?thesis
+    using callSafeTransferFromBalanceOfOther[OF assms(1-2)]
+    by simp
+qed
+
+lemma tokenClaimsAndTransferBalanceAccountBalance:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<not> bridgeDead contracts' tokenDepositAddress"
+  assumes "accountBalance contracts (mintedTokenB contracts bridgeAddress token) account = 0"
+  shows "balanceOf (tokenClaimsAndTransferBalance bridgeAddress token steps) account = 
+         accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  have "\<not> bridgeDead contracts' tokenDepositAddress"
+    by (metis local.reachableFrom_step(2) reachableFrom.simps reachableFromBridgeDead reachableFrom_step.prems(1))
+  then have *: 
+    "balanceOf (tokenClaimsAndTransferBalance bridgeAddress token steps) account =
+    accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account"
+    using reachableFrom_step
+    by blast
+    
+  show ?case
+  proof (cases step)
+    case (CLAIM address' caller' ID' token' amount' proof')
+    show ?thesis
+    proof (cases "address' = bridgeAddress \<and> token' = token \<and> caller' = account")
+      case True
+      then show ?thesis
+        using CLAIM * reachableFrom_step.hyps 
+        using callClaimBalanceOfMinted[of contracts' bridgeAddress "message caller' amount'" ID' token amount' proof' contracts'']
+        by simp
+    next
+      case False
+      have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
+        sorry
+      then show ?thesis
+        using False CLAIM * reachableFrom_step.hyps 
+        using  callClaimOtherToken[of contracts' address' "message caller' amount'" ID' token' amount' proof' contracts'' "mintedTokenB contracts address' token'"  "mintedTokenB contracts bridgeAddress token"]
+        by (cases "address' = bridgeAddress \<and> token' = token") auto
+    qed
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    have transfer:
+      "callTransfer contracts' address' caller' receiver' token' amount' = (Success, contracts'')"
+        using TRANSFER reachableFrom_step.hyps
+        by auto
+    show ?thesis
+    proof (cases "address' = bridgeAddress \<and> token' = token \<and> caller' = account")
+      case True
+      have "account \<noteq> receiver'"
+        sorry
+      show ?thesis
+        using True TRANSFER * reachableFrom_step.hyps
+        using callTransferBalanceOfCaller[OF transfer]
+        using transferBalanceBalanceOfTo[OF \<open>account \<noteq> receiver'\<close>]
+        by (metis reachableFromBridgeTokenPairs reachableFromITokenPairs tokenClaimsAndTransferBalanceConsTransfer)
+    next
+      case False
+      show ?thesis
+      proof (cases "address' = bridgeAddress \<and> token' = token")
+        case True
+        then have "account \<noteq> caller'"
+          using False
+          by auto
+        have "caller' \<noteq> receiver'" "account \<noteq> receiver'"
+          sorry
+        have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
+              accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
+          using callTransferBalanceOfOther[OF _ _ transfer] True  \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close>
+          by (metis (no_types, opaque_lifting) reachableFromBridgeTokenPairs reachableFromITokenPairs reachableFrom_step.hyps(1))
+        then show ?thesis
+          using transferBalanceBalanceOfOther *
+          using TRANSFER True \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close> addToBalanceBalanceOfOther removeFromBalanceBalanceOfOther tokenClaimsAndTransferBalanceConsTransfer transferBalance_def 
+          by presburger
+      next
+        case False
+        have m: "mintedTokenB contracts' address' token' \<noteq>
+                 mintedTokenB contracts bridgeAddress token"
+          sorry
+        have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
+              accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
+          using * callTransferOtherToken[OF transfer _ m]
+          by auto
+        then show ?thesis
+          using * False transfer TRANSFER
+          by (metis Step.simps(24) Step.simps(6) tokenClaimsAndTransferBalanceConsOther)
+      qed
+    qed
+  next
+    case (UPDATE address' stateRoot)
+    then show ?thesis
+      using * reachableFrom_step.hyps
+      by simp
+  next
+    case (DEPOSIT address' caller' ID' token' amount')
+    have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
+      sorry
+    then show ?thesis
+      using DEPOSIT * reachableFrom_step.hyps
+      by simp
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
+      sorry
+    then show ?thesis
+      using CANCEL * reachableFrom_step.hyps
+      by simp
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
+      sorry
+    then show ?thesis
+      using WITHDRAW * reachableFrom_step.hyps
+      by simp
+  qed
+qed
+
+end
+
+context BridgeDead
+begin
+
+lemma withdrawnAmountInvariant:
+  shows "withdrawnTokenAmount tokenDepositAddress token stepsAllBD + 
+         nonWithdrawnClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD = 
+         claimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+  sorry
+
+theorem tokenDepositBalance:
+  shows "tokenDepositBalance contractsBD token tokenDepositAddress = 
+         nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD + 
+         nonWithdrawnClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+  using InitBD.tokenDepositBalanceInvariant[of token]
+  using withdrawnAmountInvariant[of token]
+  using canceledAmountInvariant[of token]
+  using depositTokenAmountEqualsClaimedPlusNonClaimed[of tokenDepositAddress token stepsAllBD bridgeAddress stepsInit]
+  by simp
+
+end
 
 
 (**************************************************************************************************)
@@ -3076,9 +3479,20 @@ proof-
         using verifyClaimProofI
         by (metis bridgeStateINotNone generateStateRootUpdate' option.collapse)
     next
-      show "amount \<le> balanceOf (the (ERC20state contractsBD token)) tokenDepositAddress"
-        using canceledAmountInvariant
-        sorry
+      show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
+      proof-
+        have "amount \<le> nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+            unfolding nonCanceledNonClaimedBeforeDeathTokenDepositsAmount_def
+        proof (rule member_le_sum_list)
+          have "DEPOSIT tokenDepositAddress caller ID token amount \<in> set (nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
+            by (simp add: assms(2) assms(3) assms(4) nonCanceledNonClaimedBeforeDeathTokenDeposits_def tokenDeposits_def)
+          then show "amount \<in> set (map DEPOSIT_amount (nonCanceledNonClaimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD))"
+            by (metis HashProofVerifier.DEPOSIT_amount.simps HashProofVerifier_axioms image_eqI image_set)
+        qed
+        then show ?thesis
+          using tokenDepositBalance[of token]
+          by simp
+      qed
     next
       show "getDeposit (the (tokenDepositState contractsBD tokenDepositAddress)) ID =
             hash3 (sender (message caller 0)) token amount"
@@ -3096,13 +3510,16 @@ proof-
     by (metis executeStep.simps(4) prod.collapse reachableFrom_base reachableFrom_step)
 qed
 
+
 text \<open>If the user had some amount of tokens in the state in which the bridge died, 
       he can withdraw that amount\<close>
 theorem sufficientBalanceCanWithdraw:
   \<comment> \<open>Token deposit can accept token\<close>
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  \<comment> \<open>User starts with no minted tokens\<close>
+  assumes "accountBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) (sender msg) = 0"
   \<comment> \<open>Caller had sufficient balance before the bridge died\<close>
-  assumes "callBalanceOf contractsLastUpdate' token (sender msg) = (Success, amount)"
+  assumes "accountBalance contractsLastUpdate' (mintedTokenB contractsInit bridgeAddress token) (sender msg) = amount"
   \<comment> \<open>Caller has not yet withdrawn his balance\<close>
   assumes notWithdrawn: 
     "getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False"
@@ -3110,171 +3527,110 @@ theorem sufficientBalanceCanWithdraw:
   assumes "tokenDepositAddress \<noteq> sender msg"
   \<comment> \<open>Withdraw succedes\<close>
   shows "fst (callWithdrawWhileDead contractsBD tokenDepositAddress msg block token amount 
-                                    (generateBalanceProof contractsLastUpdate' token (sender msg) amount)) = Success"
+                                    (generateBalanceProof contractsLastUpdate' (mintedTokenB contractsInit bridgeAddress token) (sender msg) amount)) = Success"
 proof-
-  define stateTokenDeposit where "stateTokenDeposit = the (tokenDepositState contractsBD tokenDepositAddress)"
-  define stateTokenDeposit' where "stateTokenDeposit' = snd (snd (getDeadStatus contractsBD stateTokenDeposit block))"
-  define Proof where "Proof =  generateBalanceProof contractsLastUpdate' token (sender msg) amount"
-
-  have "verifyBalanceProof () token (sender msg) amount stateRoot Proof = True"
-    using verifyBalanceProofI \<open>callBalanceOf contractsLastUpdate' token (sender msg) = (Success, amount)\<close>
-    unfolding Proof_def
-    by (metis callBalanceOf callBalanceOfERC20state generateStateRootUpdate' option.collapse)
-
-  moreover
-
-  have "proofVerifierState contractsBD (TokenDepositState.proofVerifier stateTokenDeposit) \<noteq> None"
-    by (metis LVSBD.InitLVS.properSetupI properSetup_def stateTokenDeposit_def)
-
-  moreover
-
-  have "deadState stateTokenDeposit' = stateRoot"
-    by (metis bridgeDeadContractsBD deadStateContractsBD getDeadStatusInDeadState prod.exhaust_sel stateTokenDeposit'_def stateTokenDeposit_def)
-
-  ultimately
-  
-  have "callVerifyBalanceProof contractsBD (TokenDepositState.proofVerifier stateTokenDeposit) token (sender msg) amount
-        (deadState stateTokenDeposit') Proof = Success"
-    unfolding callVerifyBalanceProof_def
-    by (auto split: option.splits)
-
-  moreover
-
-  have "getDeadStatus contractsBD stateTokenDeposit block = (Success, True, stateTokenDeposit')"
-    by (metis deadStateContractsBD getDeadStatus_def split_pairs stateRootNonZero stateTokenDeposit'_def stateTokenDeposit_def)
-
-  moreover
-
-  have "fst (callSafeTransferFrom contractsBD token tokenDepositAddress (sender msg) amount) = Success"
-  proof (rule callSafeTransferFromI)
-    show "ERC20state contractsBD token = Some (the (ERC20state contractsBD token))"
-      using \<open>properToken contractsInit tokenDepositAddress bridgeAddress token\<close>
+  show ?thesis
+  proof (rule callWithdrawWhileDeadI)
+    show "tokenDepositState contractsBD tokenDepositAddress \<noteq> None"
       by simp
+  next
+    show "tokenPairsState contractsBD (tokenPairsAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+      by simp
+  next
+    show "stateOracleState contractsBD (stateOracleAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+      by simp
+  next 
+    show "proofVerifierState contractsBD (proofVerifierAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+      by simp
+  next
+    show "ERC20state contractsBD token \<noteq> None"
+      using assms(1)
+      by simp
+  next
+    show "getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False"
+      by fact
+  next
+    show "fst (snd (getDeadStatus contractsBD (the (tokenDepositState contractsBD tokenDepositAddress)) block)) = True"
+      by (metis deadStateContractsBD getDeadStatus_def split_pairs stateRootNonZero)
   next
     show "tokenDepositAddress \<noteq> sender msg"
       by fact
   next
+    show "mintedTokenTD contractsBD tokenDepositAddress token \<noteq> 0"
+      using assms(1)
+      by simp
+  next
     show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
-      sorry
-  qed
+    proof-
+      have "amount \<le> nonWithdrawnClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+      proof-
+        let ?N = "nonWithdrawnTokenClaimsAndTransferBalance tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+        have "balanceOf ?N (sender msg) = amount"
+        proof-
+          have "balanceOf (tokenClaimsAndTransferBalance bridgeAddress token stepsInit) (sender msg) = amount"
+          proof (subst tokenClaimsAndTransferBalanceAccountBalance)
+            show "reachableFrom contractsInit contractsLastUpdate' stepsInit"
+              by simp
+          next
+            show "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
+              using notBridgeDeadContractsLastUpdate' by blast
+          next
+            let ?mintedToken = "mintedTokenB contractsInit bridgeAddress token"
+            show "accountBalance contractsLastUpdate' ?mintedToken (sender msg) = amount"
+              using assms(3)
+              using callBalanceOf by blast
+          next
+            show "accountBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) (sender msg) = 0"
+              by fact              
+          qed
+          moreover 
+          have "\<nexists> amount proof. WITHDRAW tokenDepositAddress (sender msg) token amount proof \<in> set stepsAllBD"
+            using \<open>getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False\<close>
+            using InitBD.reachableFromInitI reachableFromGetTokenWithdrawnNoWithdraw by blast
+          ultimately show ?thesis
+            using nonWithdrawnTokenClaimsAndTransferBalanceNoWithdraw
+            by blast
+        qed
+        moreover 
+        have "finite (Mapping.keys (balances ?N))"
+          by simp
+        ultimately
+        show ?thesis
+          unfolding nonWithdrawnClaimedBeforeDeathAmount_def
+          by (meson order_refl totalBalance_removeFromBalance(1))
+      qed
+      then show ?thesis
+        using tokenDepositBalance
+        by simp
+    qed
+  next
+    let ?mintedToken = "mintedTokenTD contractsBD tokenDepositAddress token"
+    define Proof where "Proof =  generateBalanceProof contractsLastUpdate' (mintedTokenB contractsInit bridgeAddress token) (sender msg) amount"
 
-  ultimately
-
-  show ?thesis
-    using notWithdrawn
-    unfolding stateTokenDeposit'_def stateTokenDeposit_def Proof_def
-    unfolding callWithdrawWhileDead_def withdrawWhileDead_def
-    by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+    have "verifyBalanceProof () ?mintedToken (sender msg) amount 
+            (snd (lastValidStateTD contractsBD tokenDepositAddress)) Proof = True"
+    proof (rule verifyBalanceProofI)
+      show "generateStateRoot contractsLastUpdate' = snd (lastValidStateTD contractsBD tokenDepositAddress)"
+        by (simp add: LVSBD.getLastValidStateLVS)
+    next
+      show "ERC20state contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token) =
+            Some (the (ERC20state contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token)))"
+        using assms(1)
+        by (metis ERC20StateMintedTokenINotNone LVSBD.InitLVS.mintedTokenTDI option.exhaust_sel)
+    next
+      show "accountBalance contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token) (sender msg) = amount"
+        by (metis LVSBD.InitLVS.mintedTokenTDI assms(3) mintedTokenITDB)
+    next
+      show "generateBalanceProof contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token) (sender msg) amount = Proof"
+        unfolding Proof_def
+        using LVSBD.InitLVS.mintedTokenTDI mintedTokenITDB by presburger
+    qed
+    then show "verifyBalanceProof () ?mintedToken (sender msg) amount 
+               (snd (lastValidStateTD contractsBD tokenDepositAddress)) Proof"
+      by blast
+  qed    
 qed
 
 
 end
-
-
-context HashProofVerifier
-begin
-
-fun isTokenTransfer where
-  "isTokenTransfer address token (TRANSFER address' caller receiver token' amount) \<longleftrightarrow> address' = address \<and> token' = token"
-| "isTokenTransfer address token _ = False"
-
-definition tokenClaimsAndTransfers where
-  "tokenClaimsAndTransfers address token steps = 
-      filter (\<lambda> step. isTokenClaim address token step \<or> 
-                      isTokenTransfer address token step) steps"
-
-
-lemma tokenClaimsAndTransfersNil [simp]:
-  shows "tokenClaimsAndTransfers address token [] = []"
-  by (simp add: tokenClaimsAndTransfers_def)
-
-lemma tokenClaimsAndTransfersConsOther [simp]: 
-  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM address caller' ID' token amount' proof'"  
-  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER address caller' receiver' token amount'"  
-  shows "tokenClaimsAndTransfers address token (step # steps) = tokenClaimsAndTransfers address token steps"
-  using assms
-  by (cases step) (auto simp add: tokenClaimsAndTransfers_def)
-
-lemma tokenClaimsAndTransfersConsClaim [simp]: 
-  shows "tokenClaimsAndTransfers address token (CLAIM address caller ID token amount proof # steps) = 
-         CLAIM address caller ID token amount proof # tokenClaimsAndTransfers address token steps"
-  by (simp add: tokenClaimsAndTransfers_def)
-
-lemma tokenClaimsAndTransfersConsTransfer [simp]: 
-  shows "tokenClaimsAndTransfers address token (TRANSFER address caller receiver token amount # steps) = 
-         TRANSFER address caller receiver token amount # tokenClaimsAndTransfers address token steps"
-  by (simp add: tokenClaimsAndTransfers_def)
-
-definition tokenClaimsAndTransferBalance_fun where
-  "tokenClaimsAndTransferBalance_fun step state = 
-       (case step of CLAIM address' caller' ID' token' amount' proof' \<Rightarrow> addToBalance state caller' amount' 
-                   | TRANSFER address' caller' receiver' token' amount' \<Rightarrow> transferBalance state caller' receiver' amount'
-                   | _ \<Rightarrow> state)"
-
-definition tokenClaimsAndTransferBalance' :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
-  "tokenClaimsAndTransferBalance' address token steps = 
-    foldr tokenClaimsAndTransferBalance_fun steps ERC20Constructor"
-
-definition tokenClaimsAndTransferBalance :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
- "tokenClaimsAndTransferBalance address token steps = 
-  tokenClaimsAndTransferBalance' address token (tokenClaimsAndTransfers address token steps)"
-
-lemma tokenClaimsAndTransferBalanceCons:
- "tokenClaimsAndTransferBalance' address token (step # steps) = 
-  tokenClaimsAndTransferBalance_fun step (tokenClaimsAndTransferBalance' address token steps)"
-  unfolding tokenClaimsAndTransferBalance'_def
-  by simp
-
-lemma tokenClaimsAndTransferBalanceConsOther [simp]:
-  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM address caller' ID' token amount' proof'"  
-  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER address caller' receiver' token amount'"  
-  shows "tokenClaimsAndTransferBalance address token (step # steps) = 
-         tokenClaimsAndTransferBalance address token steps"
-  using assms
-  unfolding tokenClaimsAndTransferBalance_def
-  by simp
-
-lemma tokenClaimsAndTransferBalance'ConsClaim [simp]:
-  shows "tokenClaimsAndTransferBalance' address token (CLAIM address caller ID token amount proof # steps) = 
-         addToBalance (tokenClaimsAndTransferBalance' address token steps) caller amount"
-  unfolding tokenClaimsAndTransferBalance'_def
-  by (simp add: tokenClaimsAndTransferBalance_fun_def)
-
-lemma tokenClaimsAndTransferBalanceConsClaim [simp]:
-  shows "tokenClaimsAndTransferBalance address token (CLAIM address caller ID token amount proof # steps) = 
-         addToBalance (tokenClaimsAndTransferBalance address token steps) caller amount"
-  unfolding tokenClaimsAndTransferBalance_def
-  by simp
-
-lemma tokenClaimsAndTransferBalance'ConsTransfer [simp]:
-  shows "tokenClaimsAndTransferBalance' address token (TRANSFER address caller receiver token amount # steps) = 
-         transferBalance (tokenClaimsAndTransferBalance' address token steps) caller receiver amount"
-  unfolding tokenClaimsAndTransferBalance'_def
-  by (simp add: tokenClaimsAndTransferBalance_fun_def)
-
-lemma tokenClaimsAndTransferBalanceConsTransfer [simp]:
-  shows "tokenClaimsAndTransferBalance address token (TRANSFER address caller receiver token amount # steps) = 
-         transferBalance (tokenClaimsAndTransferBalance address token steps) caller receiver amount"
-  unfolding tokenClaimsAndTransferBalance_def
-  by simp
-
-definition nonWithdrawnTokenClaimsAndTransferBalance where
-  "nonWithdrawnTokenClaimsAndTransferBalance address token stepsBefore steps = 
-    foldr (\<lambda> step state.
-        case step of WITHDRAW address caller token amount proof \<Rightarrow> 
-                    if balanceOf state caller = amount then 
-                       removeFromBalance state caller amount
-                    else
-                       state
-                   | _ \<Rightarrow> state) steps (tokenClaimsAndTransferBalance address token stepsBefore)"
-
-definition nonWithdrawnTokenClaimsAndTransferBalanceAmount where
-  "nonWithdrawnTokenClaimsAndTransferBalanceAmount address token stepsBefore steps = 
-   totalBalance (nonWithdrawnTokenClaimsAndTransferBalance address token stepsBefore steps)"
-
-
-
-end
-
-
 end

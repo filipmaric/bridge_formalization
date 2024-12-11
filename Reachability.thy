@@ -397,6 +397,51 @@ next
     by (cases step, auto)
 qed
 
+lemma reachableFromGetTokenWithdrawnNoWithdraw:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = False"
+  shows "\<nexists> amount proof. WITHDRAW tokenDepositAddress caller token amount proof \<in> set steps"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  have "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = False"
+    using reachableFrom_step.prems reachableFrom_step.hyps
+    by (cases step, auto)
+  then have *: "\<nexists> amount proof. WITHDRAW tokenDepositAddress caller token amount proof \<in> set steps"
+    using reachableFrom_step.IH
+    by blast
+  show ?case
+  proof (cases "\<nexists> address' token' caller' amount' proof'. WITHDRAW address' caller' token' amount' proof' = step")
+    case True
+    then show ?thesis
+      using reachableFrom_step.hyps *
+      by (cases step, auto)
+  next
+    case False
+    then obtain address' token' caller' amount' proof' where
+      step: "step = WITHDRAW address' caller' token' amount' proof'"
+      by auto
+    show ?thesis
+    proof (cases "address' = tokenDepositAddress \<and> token' = token \<and> caller' = caller")
+      case False
+      then show ?thesis
+        using step reachableFrom_step.hyps *
+        by auto
+    next
+      case True
+      then show ?thesis
+        using reachableFrom_step.hyps step reachableFrom_step.prems
+        using callWithdrawWhileDeadTokenWithdrawn[of contracts' tokenDepositAddress "message caller 0" block token  amount' proof']
+        by simp
+    qed
+  qed
+qed
+
+
 lemma reachableFromBridgeState:
   assumes "reachableFrom contracts contracts' steps"
   assumes "bridgeState contracts address \<noteq> None"
@@ -981,7 +1026,7 @@ next
   case (CANCEL address' caller' ID' token' amount' proof')
   then show ?thesis
     using assms
-    by (smt (verit, ccfv_SIG) callCancelDepositWhileDeadIStateOracle callCancelDepositWhileDeadOtherAddress callCancelWhileDeadGetLastValidStateTD executeStep.simps(4) callLastState_def lastValidState_def)
+    by (smt (verit, best) callCancelDepositWhileDeadGetLastValidStateTD callCancelDepositWhileDeadIStateOracle callCancelDepositWhileDeadOtherAddress callLastState_def executeStep.simps(4) lastValidState_def)
 next
   case (WITHDRAW address' caller' token' amount' proof')
   then show ?thesis
@@ -1589,7 +1634,7 @@ lemma callCancelDepositWhileDeadProperSetup [simp]:
   shows  "properSetup contracts' tokenDepositAddress bridgeAddress"
   using assms
   unfolding properSetup_def
-  by (smt (z3) callCancelDepositOtherToken callCancelDepositWhileDeadBridge callCancelDepositWhileDeadProofVerifier callCancelDepositWhileDeadE callCancelDepositWhileDeadERC20state(2) callCancelDepositWhileDeadIBridge callCancelDepositWhileDeadIProofVerifier callCancelDepositWhileDeadIStateOracle callCancelDepositWhileDeadITokenPairs callCancelDepositWhileDeadOtherAddress callCancelDepositWhileDeadStateOracle callCancelDepositWhileDeadTokenPairs)
+  by (smt (z3) callCancelDepositWhileDeadOtherToken callCancelDepositWhileDeadBridge callCancelDepositWhileDeadProofVerifier callCancelDepositWhileDeadE callCancelDepositWhileDeadERC20state(2) callCancelDepositWhileDeadIBridge callCancelDepositWhileDeadIProofVerifier callCancelDepositWhileDeadIStateOracle callCancelDepositWhileDeadITokenPairs callCancelDepositWhileDeadOtherAddress callCancelDepositWhileDeadStateOracle callCancelDepositWhileDeadTokenPairs)
 
 lemma callCancelDepositWhileDeadProperToken [simp]:
   assumes "callCancelDepositWhileDead contracts address block msg ID token amount proof = (Success, contracts')"
@@ -1597,7 +1642,7 @@ lemma callCancelDepositWhileDeadProperToken [simp]:
   shows  "properToken contracts' tokenDepositAddress bridgeAddress tokenAddress"
   using assms
   unfolding properToken_def
-  by (metis callCancelDepositOtherToken callCancelDepositWhileDeadERC20state(2) callCancelDepositWhileDeadIBridge callCancelDepositWhileDeadITokenPairs)
+  by (metis callCancelDepositWhileDeadOtherToken callCancelDepositWhileDeadERC20state(2) callCancelDepositWhileDeadIBridge callCancelDepositWhileDeadITokenPairs)
 
 lemma callWithdrawWhileDeadProperSetup [simp]:
   assumes "callWithdrawWhileDead contracts address block msg token amount proof = (Success, contracts')"
