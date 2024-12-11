@@ -1,0 +1,15 @@
+session BridgeDefinition = HOL +
+  options [document = pdf, document_output = "output", quick_and_dirty]
+  sessions
+    "HOL-Library"
+  theories
+    More_Mapping
+    Definition
+    ERC20State
+    ProofVerifierState
+    StateOracleState
+    TokenPairsState
+    BridgeState
+    TokenDepositState
+  document_files
+    "root.tex"

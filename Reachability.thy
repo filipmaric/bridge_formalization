@@ -1,5 +1,5 @@
 theory Reachability
-imports Main Definition TokenDepositState BridgeState
+imports Main BridgeDefinition.Definition BridgeDefinition.TokenDepositState BridgeDefinition.BridgeState
 begin
 
 section \<open>Steps\<close>

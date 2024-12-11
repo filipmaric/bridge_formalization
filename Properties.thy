@@ -487,6 +487,9 @@ locale Init' = StrongHashProofVerifier +
     "\<And> ID. getClaim (the (bridgeState contractsInit bridgeAddress)) ID = False"
   assumes lastStateBZero [simp]:
     "lastStateB contractsInit bridgeAddress = 0"
+  \<comment> \<open>There are no funds on the contract\<close>
+  assumes noFunds [simp]:
+    "\<And> token. accountBalance contractsInit token tokenDepositAddress = 0"
 
 (*
                   [stepsI]
@@ -1174,6 +1177,10 @@ definition depositedTokenAmount where
   "depositedTokenAmount tokenDepositAddress token steps = 
         sum_list (map DEPOSIT_amount (tokenDeposits tokenDepositAddress token steps))"
 
+lemma tokenDepositsNil [simp]:
+  shows "tokenDeposits tokenDepositAddress token [] = []"
+  by (simp add: tokenDeposits_def)
+
 lemma tokenDepositsConsDeposit [simp]:
   shows "tokenDeposits tokenDepositAddress token (DEPOSIT tokenDepositAddress caller ID token amount # steps) =
          DEPOSIT tokenDepositAddress caller ID token amount # tokenDeposits tokenDepositAddress token steps"
@@ -1193,6 +1200,10 @@ lemma tokenDepositsOther [simp]:
   shows "tokenDeposits tokenDepositAddress token (step # steps) = tokenDeposits tokenDepositAddress token steps"
   using assms
   by (cases step, auto simp add: tokenDeposits_def)
+
+lemma depositedTokenAmountNil [simp]:
+  shows "depositedTokenAmount address token [] = 0"
+  by (simp add: depositedTokenAmount_def)
 
 lemma depositedTokenAmountConsDeposit [simp]:
   shows "depositedTokenAmount address token (DEPOSIT address caller ID token amount # steps) = 
@@ -2121,6 +2132,14 @@ definition canceledTokenAmount where
   "canceledTokenAmount tokenDepositAddress token steps = 
    sum_list (map CANCEL_amount (tokenCancels tokenDepositAddress token steps))"
 
+lemma tokenCancelsNil [simp]:
+  shows "tokenCancels tokenDepositAddress token [] = []"
+  by (simp add: tokenCancels_def)
+
+lemma canceledTokenAmountNil [simp]:
+  shows "canceledTokenAmount tokenDepositAddress token [] = 0"
+  by (simp add: canceledTokenAmount_def)
+
 lemma canceledTokenAmountCancel [simp]:
   shows "canceledTokenAmount address token (CANCEL address caller ID token amount proof # steps) = 
          amount + canceledTokenAmount address token steps"
@@ -2151,6 +2170,162 @@ lemma canceledTokenAmountBridgeNotDead:
   unfolding canceledTokenAmount_def tokenCancels_def
   by (metis filter_False isTokenCancel.elims(2) list.simps(8) sum_list.Nil)
 
+definition tokenWithdrawals where
+  "tokenWithdrawals tokenDepositAddress token steps = filter (\<lambda> step. case step of WITHDRAW address' caller token' amount proof \<Rightarrow> tokenDepositAddress = address' \<and> token = token' | _ \<Rightarrow> False) steps"
+
+definition withdrawnTokenAmount where
+  "withdrawnTokenAmount tokenDepositAddress token steps = 
+   sum_list (map WITHDRAW_amount (tokenWithdrawals tokenDepositAddress token steps))"
+
+lemma tokenWithdrawalsNil [simp]:
+  shows "tokenWithdrawals tokenDepositAddress token [] = []"
+  unfolding tokenWithdrawals_def
+  by simp
+
+lemma withdrawnTokenAmountNil [simp]:
+  shows "withdrawnTokenAmount tokenDepositAddress token [] = 0"
+  by (simp add: withdrawnTokenAmount_def)
+
+lemma withdrawnTokenAmoutConsOther [simp]:
+  assumes "\<nexists> caller' amount' proof'. step = WITHDRAW address caller' token amount' proof'"
+  shows "withdrawnTokenAmount address token (step # steps) = withdrawnTokenAmount address token steps"
+  using assms 
+  unfolding withdrawnTokenAmount_def tokenWithdrawals_def
+  by (cases step, auto)
+
+lemma withdrawnTokenAmoutConsWithdraw [simp]:
+  shows "withdrawnTokenAmount address token (WITHDRAW address caller token amount proof # steps) = 
+         withdrawnTokenAmount address token steps + amount"
+  unfolding withdrawnTokenAmount_def tokenWithdrawals_def
+  by auto
+
+lemma withdrawnTokenAmountBridgeNotDead:
+  assumes "reachableFrom contractsInit contracts steps"
+          "\<not> bridgeDead contracts tokenDepositAddress"
+    shows "withdrawnTokenAmount tokenDepositAddress token steps = 0"
+  using assms
+  sorry
+
+end
+
+context Init
+begin
+
+lemma tokenDepositBalanceCanceledWithdrawnDeposited:
+  shows "tokenDepositBalance contractsI token tokenDepositAddress + 
+         canceledTokenAmount tokenDepositAddress token stepsInit + 
+         withdrawnTokenAmount tokenDepositAddress token stepsInit = 
+         depositedTokenAmount tokenDepositAddress token stepsInit"
+  using reachableFromInitI Init_axioms
+proof (induction contractsInit contractsI stepsInit rule: reachableFrom.induct)
+  case (reachableFrom_base contractsInit)
+  then interpret I: Init where contractsInit=contractsInit and contractsI=contractsInit and stepsInit="[]"
+    .
+  show ?case
+    by simp
+next
+  case (reachableFrom_step steps contractsI contractsInit contractsI' blockNum block step)
+  then interpret I: Init where contractsInit=contractsInit and contractsI=contractsI' and stepsInit=steps
+    using InitInduction by blast
+  have *: "accountBalance contractsI' token tokenDepositAddress +
+           canceledTokenAmount tokenDepositAddress token steps +
+           withdrawnTokenAmount tokenDepositAddress token steps =
+           depositedTokenAmount tokenDepositAddress token steps"
+    using reachableFrom_step
+    by simp
+  show ?case
+  proof (cases step)
+    case (UPDATE address' stateRoot')
+    then show ?thesis
+      using * reachableFrom_step.hyps
+      by simp
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    have "mintedTokenB contractsI' address' token' \<noteq> token"
+      sorry
+    then have "accountBalance contractsI token tokenDepositAddress = 
+               accountBalance contractsI' token tokenDepositAddress"
+      using TRANSFER reachableFrom_step.hyps
+      using callTransferOtherToken[of contractsI' address' caller' receiver' token' amount' contractsI "mintedTokenB contractsI' address' token'" token]
+      by (metis executeStep.simps(6))
+    then show ?thesis
+      using * TRANSFER reachableFrom_step.hyps
+      by simp
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    have "mintedTokenB contractsI' address' token' \<noteq> token"
+      sorry
+    then have "accountBalance contractsI token tokenDepositAddress = 
+              accountBalance contractsI' token tokenDepositAddress"
+      using callClaimOtherToken[of contractsI' address' "message caller' amount'" ID' token' amount' proof' contractsI _ token]
+      using CLAIM reachableFrom_step.hyps
+      by simp
+    then show ?thesis
+      using * CLAIM
+      by simp
+  next
+    case (DEPOSIT address' caller' ID' token' amount')
+    show ?thesis
+    proof (cases "address' = tokenDepositAddress \<and> token' = token")
+      case True
+      then show ?thesis
+        using * DEPOSIT reachableFrom_step.hyps callDepositBalanceOfContract
+        by simp
+    next
+      case False
+      have "caller' \<noteq> tokenDepositAddress"
+        sorry
+      then show ?thesis
+        using False * DEPOSIT reachableFrom_step.hyps
+        using callDepositOtherToken[of token token']
+        using callDepositBalanceOfOther[of tokenDepositAddress address' "message caller' amount'" contractsI' block ID' token' amount' contractsI]
+        by (metis HashProofVerifier.Step.distinct(6) HashProofVerifier.Step.distinct(7) HashProofVerifier_axioms canceledTokenAmountConsOther depositedTokenAmountConsDepositOther executeStep.simps(1) senderMessage withdrawnTokenAmoutConsOther)
+    qed
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    show ?thesis
+    proof (cases "address' = tokenDepositAddress \<and> token' = token")
+      case True
+      then show ?thesis
+        using CANCEL * reachableFrom_step.hyps 
+        using callCancelDepositWhileDead_balanceOfContract[of contractsI' address' "message caller' 0" block ID' token' amount' proof' contractsI]
+        by auto
+    next
+      case False
+      have "caller' \<noteq> tokenDepositAddress"
+        sorry
+      then show ?thesis
+        using False CANCEL * reachableFrom_step.hyps 
+        using callCancelDepositWhileDead_balanceOfOther callCancelDepositOtherToken
+        by (smt (verit, best) HashProofVerifier.Step.distinct(25) HashProofVerifier_axioms Step.simps(11) canceledTokenAmountConsCancelOther depositedTokenAmoutConsOther executeStep.simps(4) senderMessage withdrawnTokenAmoutConsOther)
+    qed
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    show ?thesis
+    proof (cases "address' = tokenDepositAddress \<and> token' = token")
+      case True
+      then show ?thesis
+        using WITHDRAW * reachableFrom_step.hyps 
+        using callWithdrawWhileDead_balanceOfContract[of contractsI' address' "message caller' 0" block token' amount' proof' contractsI]
+        by auto
+    next
+      case False
+      have "caller' \<noteq> tokenDepositAddress"
+        sorry
+      then show ?thesis
+        using False WITHDRAW * reachableFrom_step.hyps 
+        using callWithdrawWhileDead_balanceOfOther[of contractsI' address' "message caller' 0" block token' amount' proof' contractsI tokenDepositAddress] 
+        using callWithdrawWhileDeadOtherToken[of token token' contractsI' address' "message caller' 0" block amount' proof' contractsI]
+        by (metis HashProofVerifier.Step.distinct(25) HashProofVerifier_axioms Step.simps(13) Step.simps(5) canceledTokenAmountConsOther depositedTokenAmoutConsOther executeStep.simps(5) senderMessage withdrawnTokenAmoutConsOther)
+    qed
+  qed
+qed
+
+end
+
+
+context HashProofVerifier
+begin
 
 definition claimedBeforeDeathTokenDeposits where
   "claimedBeforeDeathTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps =
@@ -2238,28 +2413,6 @@ lemma nonCanceledNonClaimedBeforeDeathTokenDepositsAmountConsOther [simp]:
   shows "nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore (step # steps) =
          nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
   by (simp add: assms nonCanceledNonClaimedBeforeDeathTokenDepositsAmount_def)
-
-definition tokenWithdrawals where
-  "tokenWithdrawals tokenDepositAddress token steps = filter (\<lambda> step. case step of WITHDRAW address' caller token' amount proof \<Rightarrow> tokenDepositAddress = address' \<and> token = token' | _ \<Rightarrow> False) steps"
-
-definition withdrawnTokenAmount where
-  "withdrawnTokenAmount tokenDepositAddress token steps = 
-   sum_list (map WITHDRAW_amount (tokenWithdrawals tokenDepositAddress token steps))"
-
-lemma withdrawnTokenAmoutConsOther [simp]:
-  assumes "\<nexists> address' caller' token' amount' proof'. step = WITHDRAW address' caller' token' amount' proof'"
-  shows "withdrawnTokenAmount address token (step # steps) = withdrawnTokenAmount address token steps"
-  using assms 
-  unfolding withdrawnTokenAmount_def tokenWithdrawals_def
-  by (cases step, auto)
-
-(*
-definition claimedBeforeDeathNotWithdrawnTokenDeposits where
-  "claimedBeforeDeathNotWithdrawnTokenDeposits tokenDepositAddress bridgeAddress token stepsBefore steps =
-     filter (\<lambda> step. isClaimed bridgeAddress token (DEPOSIT_id step) stepsBefore \<and>
-                   \<not> isWithdrawn bridgeAddress token (DEPOSIT_id step) steps) 
-            (tokenDeposits tokenDepositAddress token steps)"
-*)
 
 end
 
@@ -2720,8 +2873,10 @@ next
       by simp
   qed
 qed
-
 end
+
+
+
 
 (**************************************************************************************************)
 section \<open>Liveness\<close>
@@ -3012,5 +3167,114 @@ proof-
     by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 qed
 
+
 end
+
+
+context HashProofVerifier
+begin
+
+fun isTokenTransfer where
+  "isTokenTransfer address token (TRANSFER address' caller receiver token' amount) \<longleftrightarrow> address' = address \<and> token' = token"
+| "isTokenTransfer address token _ = False"
+
+definition tokenClaimsAndTransfers where
+  "tokenClaimsAndTransfers address token steps = 
+      filter (\<lambda> step. isTokenClaim address token step \<or> 
+                      isTokenTransfer address token step) steps"
+
+
+lemma tokenClaimsAndTransfersNil [simp]:
+  shows "tokenClaimsAndTransfers address token [] = []"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsOther [simp]: 
+  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM address caller' ID' token amount' proof'"  
+  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER address caller' receiver' token amount'"  
+  shows "tokenClaimsAndTransfers address token (step # steps) = tokenClaimsAndTransfers address token steps"
+  using assms
+  by (cases step) (auto simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsClaim [simp]: 
+  shows "tokenClaimsAndTransfers address token (CLAIM address caller ID token amount proof # steps) = 
+         CLAIM address caller ID token amount proof # tokenClaimsAndTransfers address token steps"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+lemma tokenClaimsAndTransfersConsTransfer [simp]: 
+  shows "tokenClaimsAndTransfers address token (TRANSFER address caller receiver token amount # steps) = 
+         TRANSFER address caller receiver token amount # tokenClaimsAndTransfers address token steps"
+  by (simp add: tokenClaimsAndTransfers_def)
+
+definition tokenClaimsAndTransferBalance_fun where
+  "tokenClaimsAndTransferBalance_fun step state = 
+       (case step of CLAIM address' caller' ID' token' amount' proof' \<Rightarrow> addToBalance state caller' amount' 
+                   | TRANSFER address' caller' receiver' token' amount' \<Rightarrow> transferBalance state caller' receiver' amount'
+                   | _ \<Rightarrow> state)"
+
+definition tokenClaimsAndTransferBalance' :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
+  "tokenClaimsAndTransferBalance' address token steps = 
+    foldr tokenClaimsAndTransferBalance_fun steps ERC20Constructor"
+
+definition tokenClaimsAndTransferBalance :: "address \<Rightarrow> address \<Rightarrow> Step list \<Rightarrow> ERC20State" where
+ "tokenClaimsAndTransferBalance address token steps = 
+  tokenClaimsAndTransferBalance' address token (tokenClaimsAndTransfers address token steps)"
+
+lemma tokenClaimsAndTransferBalanceCons:
+ "tokenClaimsAndTransferBalance' address token (step # steps) = 
+  tokenClaimsAndTransferBalance_fun step (tokenClaimsAndTransferBalance' address token steps)"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by simp
+
+lemma tokenClaimsAndTransferBalanceConsOther [simp]:
+  assumes "\<nexists> caller' ID' amount' proof'. step = CLAIM address caller' ID' token amount' proof'"  
+  assumes "\<nexists> caller' receiver' amount' proof'. step = TRANSFER address caller' receiver' token amount'"  
+  shows "tokenClaimsAndTransferBalance address token (step # steps) = 
+         tokenClaimsAndTransferBalance address token steps"
+  using assms
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance'ConsClaim [simp]:
+  shows "tokenClaimsAndTransferBalance' address token (CLAIM address caller ID token amount proof # steps) = 
+         addToBalance (tokenClaimsAndTransferBalance' address token steps) caller amount"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by (simp add: tokenClaimsAndTransferBalance_fun_def)
+
+lemma tokenClaimsAndTransferBalanceConsClaim [simp]:
+  shows "tokenClaimsAndTransferBalance address token (CLAIM address caller ID token amount proof # steps) = 
+         addToBalance (tokenClaimsAndTransferBalance address token steps) caller amount"
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+lemma tokenClaimsAndTransferBalance'ConsTransfer [simp]:
+  shows "tokenClaimsAndTransferBalance' address token (TRANSFER address caller receiver token amount # steps) = 
+         transferBalance (tokenClaimsAndTransferBalance' address token steps) caller receiver amount"
+  unfolding tokenClaimsAndTransferBalance'_def
+  by (simp add: tokenClaimsAndTransferBalance_fun_def)
+
+lemma tokenClaimsAndTransferBalanceConsTransfer [simp]:
+  shows "tokenClaimsAndTransferBalance address token (TRANSFER address caller receiver token amount # steps) = 
+         transferBalance (tokenClaimsAndTransferBalance address token steps) caller receiver amount"
+  unfolding tokenClaimsAndTransferBalance_def
+  by simp
+
+definition nonWithdrawnTokenClaimsAndTransferBalance where
+  "nonWithdrawnTokenClaimsAndTransferBalance address token stepsBefore steps = 
+    foldr (\<lambda> step state.
+        case step of WITHDRAW address caller token amount proof \<Rightarrow> 
+                    if balanceOf state caller = amount then 
+                       removeFromBalance state caller amount
+                    else
+                       state
+                   | _ \<Rightarrow> state) steps (tokenClaimsAndTransferBalance address token stepsBefore)"
+
+definition nonWithdrawnTokenClaimsAndTransferBalanceAmount where
+  "nonWithdrawnTokenClaimsAndTransferBalanceAmount address token stepsBefore steps = 
+   totalBalance (nonWithdrawnTokenClaimsAndTransferBalance address token stepsBefore steps)"
+
+
+
+end
+
+
 end
