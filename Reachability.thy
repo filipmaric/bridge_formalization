@@ -1566,6 +1566,7 @@ definition properToken :: "Contracts \<Rightarrow> address \<Rightarrow> address
       in stateTokenPairs \<noteq> None \<and>
          ERC20state contracts token \<noteq> None \<and>
          getMinted (the stateTokenPairs) token \<noteq> 0 \<and>
+         getMinted (the stateTokenPairs) token \<noteq> token \<and>
          ERC20state contracts (getMinted (the stateTokenPairs) token) \<noteq> None)"
 
 lemma properSetup_stateOracleAddress:

@@ -334,6 +334,22 @@ abbreviation totalTokenBalance :: "Contracts \<Rightarrow> address \<Rightarrow>
   "totalTokenBalance contracts token \<equiv>
    totalBalance (the (ERC20state contracts token))"
 
+lemma totalBalanceERC20constructor [simp]:
+  shows "totalBalance ERC20Constructor = 0"
+  unfolding totalBalance_def
+  by simp
+
+lemma totalBalanceEq:
+  assumes "\<forall> x. balanceOf state' x = balanceOf state x"
+  shows "totalBalance state' = totalBalance state"
+  using assms
+  sorry
+
+lemma totalBalanceZero: 
+  assumes "totalBalance state = 0"
+  shows "balanceOf state x = 0"
+  sorry
+
 lemma totalBalance_addToBalance [simp]:
   assumes "finite (Mapping.keys (balances state))"
   shows "totalBalance (addToBalance state caller amount) = totalBalance state + amount"

@@ -359,7 +359,19 @@ proof-
     by (auto  split: option.splits prod.splits if_split_asm)
 qed
 
-
+lemma callTransferBalanceOfOther:
+  assumes "other \<noteq> caller" "other \<noteq> receiver"
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "accountBalance contracts' mintedToken other =
+         accountBalance contracts mintedToken other"
+proof-
+  have "callSafeTransferFrom contracts mintedToken caller receiver amount = (Success, contracts')"
+    using assms callTransferSafeTransferFrom by blast
+  then show ?thesis
+    using callSafeTransferFromBalanceOfOther[OF assms(1-2)]
+    by simp
+qed
 
 lemma callTransferTotalBalance:
   assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"

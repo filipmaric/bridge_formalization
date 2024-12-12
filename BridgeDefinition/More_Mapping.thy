@@ -45,6 +45,11 @@ lemma lookupBool_update' [simp]:
 definition mapping_value_sum where
  "mapping_value_sum m = sum_list (map snd (Mapping.ordered_entries m))"
 
+lemma mapping_value_sum_empty [simp]:
+  shows "mapping_value_sum Mapping.empty = 0"
+  unfolding mapping_value_sum_def
+  by simp
+
 lemma mapping_value_sum_update_plus [simp]:
   assumes "finite (Mapping.keys m)"
   shows "mapping_value_sum (Mapping.update k (lookupNat m k + v) m) = mapping_value_sum m + v"
