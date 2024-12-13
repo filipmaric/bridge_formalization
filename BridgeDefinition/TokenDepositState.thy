@@ -393,6 +393,29 @@ lemma callDepositGetLastValidStateTD [simp]:
   using assms
   by (smt (verit, ccfv_SIG) Hash.callDepositOtherAddress Hash.callDepositStateOracle callDepositDeadStateRemainsSet callDepositIStateOracle callDepositNotBridgeDead' callLastState_def lastValidState_def)
 
+lemma finiteBalancesSetTokenDepositState:
+  assumes "finiteBalances contracts token'"
+  shows "finiteBalances (setTokenDepositState contracts address state) token'"
+  using assms
+  by (simp add: finiteBalances_def)
+
+lemma callDepositFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+proof (cases "token = token'")
+  case True
+  then show ?thesis
+    using assms callSafeTransferFromFiniteBalances[of contracts token "sender msg" address amount]
+    by (auto simp add: finiteBalances_def callDeposit_def deposit_def split: option.splits prod.splits if_split_asm)
+next
+  case False
+  then show ?thesis
+    using assms
+    unfolding finiteBalances_def
+    by (metis callDepositOtherToken)
+qed
+
 text \<open>Sufficient conditions for a deposit to be made\<close>
 lemma callDepositI:
   assumes "tokenDepositState contracts address = Some state"
@@ -668,6 +691,25 @@ lemma callCancelDepositWhileDead_balanceOfOther:
   unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
   by (auto simp add: Let_def  split: option.splits prod.splits if_split_asm)
 
+lemma callCancelDepositWhileDeadFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callCancelDepositWhileDead contracts address msg block ID token amount proof =
+           (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+proof (cases "token = token'")
+  case True
+  then show ?thesis
+    using assms callSafeTransferFromFiniteBalances[of contracts token' address "sender msg" amount]
+    unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def Let_def
+    by (auto split: option.splits prod.splits if_split_asm simp add: finiteBalances_def)
+next
+  case False
+  then show ?thesis
+    using assms
+    unfolding finiteBalances_def
+    by (metis callCancelDepositWhileDeadOtherToken)
+qed
+
 lemma callCancelDepositWhileDeadTokenWithdrawn [simp]:
   assumes "callCancelDepositWhileDead contracts address msg block ID token amount proof = (Success, contracts')"
   shows "tokenWithdrawn ((the (tokenDepositState contracts' address'))) = 
@@ -899,6 +941,25 @@ lemma callWithdrawWhileDead_balanceOfOther:
   using safeTransferFromBalanceOfOther[of address tokenDepositAddress "sender msg" "the (ERC20state contracts' token)" "the (ERC20state contracts token)" amount, symmetric]
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def callSafeTransferFrom_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+
+lemma callWithdrawWhileDeadFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+proof (cases "token = token'")
+  case True
+  then show ?thesis
+    using assms callSafeTransferFromFiniteBalances[of contracts token' address "sender msg" amount]
+    unfolding callWithdrawWhileDead_def withdrawWhileDead_def Let_def
+    by (auto split: option.splits prod.splits if_split_asm simp add: finiteBalances_def)
+next
+  case False
+  then show ?thesis
+    using assms
+    unfolding finiteBalances_def
+    by (metis callWithdrawWhileDeadOtherToken)
+qed
 
 (* TODO: add other conclusions *)
 lemma callWithdrawWhileDeadE:

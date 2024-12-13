@@ -223,6 +223,14 @@ lemma callSafeTransferFromOtherToken [simp]:
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callSafeTransferFromFiniteBalances:
+  assumes "finiteBalances contracts token"
+  assumes "callSafeTransferFrom contracts token caller address amount = (Success, contracts')"
+  shows "finiteBalances contracts' token"
+  using assms
+  unfolding callSafeTransferFrom_def safeTransferFrom_def transferBalance_def removeFromBalance_def addToBalance_def
+  by (auto simp add: finiteBalances_def split: option.splits prod.splits if_split_asm)
+
 text \<open>Sufficient condition for callTransferFrom to succeed\<close>
 lemma callSafeTransferFromI:
   assumes "ERC20state contracts address = Some state"
@@ -317,6 +325,14 @@ lemma callMintOtherToken [simp]:
   unfolding callMint_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callMintFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callMint contracts token caller amount = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+  using assms
+  unfolding finiteBalances_def
+  by (auto simp add: callMint_def mint_def addToBalance_def Mapping.lookup_update' split: option.splits)
+
 text \<open>Sufficient condition for callMint to succeed\<close>
 lemma callMintI: 
   assumes "ERC20state contracts mintedToken \<noteq> None" \<comment> \<open>minted token contract exists\<close>
@@ -403,12 +419,12 @@ lemma totalBalanceGeqUserBalance:
   by simp
 
 lemma callMint_total_balance [simp]:
-  assumes "finite (Mapping.keys (balances ((the (ERC20state contracts token)))))"
+  assumes "finiteBalances contracts token"
   assumes "callMint contracts token caller amount = (Success, contracts')"
   shows "totalTokenBalance contracts' token = 
          totalTokenBalance contracts token + amount"
   using assms
-  unfolding callMint_def mint_def
+  unfolding callMint_def mint_def finiteBalances_def
   by (auto simp add: Let_def split: option.splits)
 
 end

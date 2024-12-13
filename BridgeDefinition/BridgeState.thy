@@ -82,7 +82,7 @@ lemma callClaimOtherToken:
  (* FIXME: avoid proof after auto *)
 
 lemma callClaimTotalBalance:
-  assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"
+  assumes "finiteBalances contracts mintedToken"
   assumes "callClaim contracts bridgeAddress msg ID token amount proof' = (Success, contracts')"
   assumes "mintedTokenB contracts bridgeAddress token = mintedToken"
   shows "totalTokenBalance contracts' mintedToken =
@@ -101,11 +101,26 @@ proof-
     unfolding  Let_def stateBridge_def
     by simp
   then show ?thesis
-    using assms
-    unfolding callClaim_def claim_def stateBridge_def
+    using assms callMint_total_balance
+    unfolding callClaim_def claim_def stateBridge_def finiteBalances_def
     by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 qed
 
+lemma finiteBalancesSetBridgeState:
+  assumes "finiteBalances contracts token'"
+  shows "finiteBalances (setBridgeState contracts address state) token'"
+  using assms
+  by (simp add: finiteBalances_def)
+
+lemma callClaimFiniteBalances [simp]:
+  assumes "finiteBalances contracts token'"
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+  using assms
+  unfolding callClaim_def claim_def
+  apply (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  using callMintFiniteBalances finiteBalancesSetBridgeState by blast
+  (* FIXME: avoid methods after auto *)
 
 lemma callClaimCallLastState:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -374,7 +389,7 @@ proof-
 qed
 
 lemma callTransferTotalBalance:
-  assumes "finite (Mapping.keys (balances ((the (ERC20state contracts mintedToken)))))"
+  assumes "finiteBalances contracts mintedToken"
   assumes "callTransfer contracts bridgeAddress caller receiver token amount = (Success, contracts')"
   assumes "mintedTokenB contracts bridgeAddress token = mintedToken"
   shows "totalTokenBalance contracts' token' =
@@ -396,8 +411,8 @@ proof-
     case True
     then show ?thesis
       using assms(3) *
-      using totalBalance_safeTransferFrom[OF \<open>caller \<noteq> receiver\<close> assms(1) **]
-      unfolding callSafeTransferFrom_def
+      using totalBalance_safeTransferFrom[OF \<open>caller \<noteq> receiver\<close> _ **] assms
+      unfolding callSafeTransferFrom_def finiteBalances_def
       by (auto split: option.splits prod.splits if_split_asm)
   next
     case False
@@ -465,7 +480,15 @@ proof-
    show ?thesis
      using assms(2) callSafeTransferFromERC20state(2)[OF *] callSafeTransferFromOtherToken[OF _ *]
      by metis
-qed
+ qed
+
+lemma callTransferFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callTransfer contracts address caller receiver token amount = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+  using assms
+  by (metis callSafeTransferFromFiniteBalances callSafeTransferFromOtherToken callTransferSafeTransferFrom finiteBalances_def)
+
 end
 
 end

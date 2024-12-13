@@ -111,4 +111,13 @@ lemma callWithdrawWhileDeadGetLastValidStateTD [simp]:
   using callLastState_def callUpdateITokenDeposit callUpdateOtherAddress lastValidState_def 
   by presburger
 
+lemma callUpdateFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+  using assms
+  unfolding callUpdate_def update_def
+  by (auto simp add: Let_def finiteBalances_def split: option.splits prod.splits if_split_asm)
+
+
 end

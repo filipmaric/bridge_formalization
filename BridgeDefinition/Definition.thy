@@ -771,4 +771,8 @@ abbreviation proofVerifierAddressTD where
   "proofVerifierAddressTD contracts tokenDepositAddress \<equiv> 
    TokenDepositState.proofVerifier (the (tokenDepositState contracts tokenDepositAddress))"
 
+text \<open>There is a finite number of users\<close>
+definition finiteBalances where
+  "finiteBalances contracts token \<equiv> finite (Mapping.keys (balances (the (ERC20state contracts token))))"
+
 end

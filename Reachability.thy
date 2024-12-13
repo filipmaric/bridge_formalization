@@ -1536,6 +1536,51 @@ next
   qed
 qed
 
+
+lemma reachableFromFiniteBalances:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "finiteBalances contracts token"
+  shows "finiteBalances contracts' token"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case by (simp add: finiteBalances_def)
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+  proof (cases step)
+    case (DEPOSIT address' caller' ID' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callDepositFiniteBalances executeStep.simps(1)) 
+  next
+    case (CLAIM address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callClaimFiniteBalances executeStep.simps(2))
+  next
+    case (CANCEL address' caller' ID' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callCancelDepositWhileDeadFiniteBalances executeStep.simps(4))
+  next
+    case (WITHDRAW address' caller' token' amount' proof')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callWithdrawWhileDeadFiniteBalances executeStep.simps(5))
+  next
+    case (UPDATE address' stateRoot')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callUpdateFiniteBalances executeStep.simps(3))
+  next
+    case (TRANSFER address' caller' receiver' token' amount')
+    then show ?thesis
+      using reachableFrom_step
+      by (metis callTransferFiniteBalances executeStep.simps(6))
+  qed  
+qed
+
 (* ----------------------------------------------------------------------------------- *)
 
 text \<open>Conditions that are necessary for bridge functioning (address memorized in contracts should be
@@ -1558,6 +1603,10 @@ definition properSetup :: "Contracts \<Rightarrow> address \<Rightarrow> address
          stateOracleState contracts (BridgeState.stateOracle (the stateBridge)) \<noteq> None \<and>
          proofVerifierState contracts (BridgeState.proofVerifier (the stateBridge)) \<noteq> None \<and>
          tokenPairsState contracts (BridgeState.tokenPairs (the stateBridge)) \<noteq> None)"
+
+abbreviation totalMinted where 
+  "totalMinted contracts bridgeAddress token \<equiv>
+   totalTokenBalance contracts (mintedTokenB contracts bridgeAddress token)"
 
 definition properToken :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address \<Rightarrow> bool" where
   "properToken contracts tokenDepositAddress bridgeAddress token \<longleftrightarrow>
