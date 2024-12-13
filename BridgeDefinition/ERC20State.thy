@@ -340,15 +340,21 @@ lemma totalBalanceERC20constructor [simp]:
   by simp
 
 lemma totalBalanceEq:
+  assumes "finite (Mapping.keys (balances state'))" "finite (Mapping.keys (balances state))"
   assumes "\<forall> x. balanceOf state' x = balanceOf state x"
   shows "totalBalance state' = totalBalance state"
-  using assms
-  sorry
+  using assms mapping_value_sum_eq
+  unfolding totalBalance_def balanceOf_def
+  by blast
 
 lemma totalBalanceZero: 
+  assumes "finite (Mapping.keys (balances state))"
   assumes "totalBalance state = 0"
   shows "balanceOf state x = 0"
-  sorry
+  using assms
+  unfolding totalBalance_def balanceOf_def
+  using mapping_value_sum_update_minus(1) by fastforce
+
 
 lemma totalBalance_addToBalance [simp]:
   assumes "finite (Mapping.keys (balances state))"

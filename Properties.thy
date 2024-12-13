@@ -503,7 +503,53 @@ locale Init' = StrongHashProofVerifier +
     "lastStateB contractsInit bridgeAddress = 0"
   \<comment> \<open>There are no funds on the contract\<close>
   assumes noFunds [simp]:
-    "\<And> token. accountBalance contractsInit token tokenDepositAddress = 0"
+    "\<And> token. ERC20state contractsInit token \<noteq> None \<Longrightarrow> 
+               accountBalance contractsInit token tokenDepositAddress = 0"
+  assumes finiteBalances [simp]:
+    "\<And> token. ERC20state contractsInit token \<noteq> None \<Longrightarrow> 
+              finite (Mapping.keys (balances (the (ERC20state contractsInit token))))"
+begin
+
+lemma lastStateTDZeroInit [simp]:
+  shows "lastStateTD contractsInit tokenDepositAddress = 0"
+  by (metis lastStateBZero properSetupInit properSetup_getLastState)
+
+lemma mintedTokenITDB:
+  shows "mintedTokenB contractsInit bridgeAddress token = mintedTokenTD contractsInit tokenDepositAddress token"
+  by (metis properSetupInit properSetup_def)
+
+lemma mintedTokenTDInitNonNone [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "mintedTokenTD contractsInit tokenDepositAddress token \<noteq> 0"
+  using assms
+  unfolding properToken_def Let_def
+  by (simp add: mintedTokenITDB)
+
+lemma properTokenNoFunds [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "accountBalance contractsInit token tokenDepositAddress = 0"
+  by (meson assms noFunds properToken_def)
+
+lemma properTokenFiniteBalances [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "finite (Mapping.keys (balances (the (ERC20state contractsInit token))))"
+  using assms
+  by (meson finiteBalances properToken_def)
+
+lemma properTokenFiniteBalancesMinted [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "finite (Mapping.keys (balances (the (ERC20state contractsInit (mintedTokenB contractsInit bridgeAddress token)))))"
+  using assms
+  by (meson finiteBalances properToken_def)
+
+lemma mintedTokenBInitNonNone [simp]:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  shows "mintedTokenB contractsInit bridgeAddress token \<noteq> 0"
+  using assms
+  by (simp add: Let_def properToken_def)
+
+end
+
 
 (*
                   [stepsI]
@@ -534,10 +580,6 @@ lemma stateOracleAddressTDI [simp]:
          stateOracleAddressTD contractsInit tokenDepositAddress"
   using reachableFromDepositStateOracle reachableFromInitI
   by blast
-
-lemma lastStateTDZeroInit [simp]:
-  shows "lastStateTD contractsInit tokenDepositAddress = 0"
-  by (metis lastStateBZero properSetupInit properSetup_getLastState)
 
 lemma tokenDepositStateINotNone [simp]:
   shows "tokenDepositState contractsI tokenDepositAddress \<noteq> None"
@@ -592,23 +634,6 @@ lemma ERC20StateMintedTokenINotNone [simp]:
   shows "ERC20state contractsI (mintedTokenTD contractsInit tokenDepositAddress token) \<noteq> None"
   using assms
   by (metis mintedTokenTDI properTokenReachable properSetupI properSetup_def properToken_def reachableFromInitI)
-
-lemma mintedTokenITDB:
-  shows "mintedTokenB contractsInit bridgeAddress token = mintedTokenTD contractsInit tokenDepositAddress token"
-  by (metis properSetupInit properSetup_def)
-
-lemma mintedTokenBInitNonNone [simp]:
-  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
-  shows "mintedTokenB contractsInit bridgeAddress token \<noteq> 0"
-  using assms
-  by (simp add: Let_def properToken_def)
-
-lemma mintedTokenTDInitNonNone [simp]:
-  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
-  shows "mintedTokenTD contractsInit tokenDepositAddress token \<noteq> 0"
-  using assms
-  unfolding properToken_def Let_def
-  by (simp add: mintedTokenITDB)
 
 end
 
@@ -2329,16 +2354,18 @@ context Init
 begin
 
 lemma tokenDepositBalanceInvariant:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   shows "tokenDepositBalance contractsI token tokenDepositAddress + 
          canceledTokenAmount tokenDepositAddress token stepsInit + 
          withdrawnTokenAmount tokenDepositAddress token stepsInit = 
          depositedTokenAmount tokenDepositAddress token stepsInit"
-  using reachableFromInitI Init_axioms
+  using reachableFromInitI Init_axioms assms
 proof (induction contractsInit contractsI stepsInit rule: reachableFrom.induct)
   case (reachableFrom_base contractsInit)
   then interpret I: Init where contractsInit=contractsInit and contractsI=contractsInit and stepsInit="[]"
-    .
+    by simp
   show ?case
+    using reachableFrom_base.prems
     by simp
 next
   case (reachableFrom_step steps contractsI contractsInit contractsI' blockNum block step)
@@ -3324,10 +3351,18 @@ lemma tokenClaimsAndTransferBalanceAccountTotalBalance:
   shows "totalBalance (tokenClaimsAndTransferBalances bridgeAddress token steps) =
          totalMinted contracts' bridgeAddress token"
 proof (rule totalBalanceEq, safe)
+  show "finite (Mapping.keys (balances (tokenClaimsAndTransferBalances bridgeAddress token steps)))"
+    by simp
+next
+  show "finite (Mapping.keys (balances (the (ERC20state contracts' (mintedTokenB contracts' bridgeAddress token)))))"
+    sorry
+next
   fix user
-  show "balanceOf (tokenClaimsAndTransferBalances bridgeAddress token steps) user = 
+  have "finite (Mapping.keys (balances (the (ERC20state contracts (mintedTokenB contracts bridgeAddress token))))) "
+    sorry
+  then show "balanceOf (tokenClaimsAndTransferBalances bridgeAddress token steps) user = 
         accountBalance contracts' (mintedTokenB contracts' bridgeAddress token) user"
-    using tokenClaimsAndTransferBalanceAccountBalance[OF assms(1) assms(2) totalBalanceZero[OF assms(3)]]
+    using tokenClaimsAndTransferBalanceAccountBalance[OF assms(1) assms(2) totalBalanceZero[OF _ assms(3)]]
     by (metis assms(1) reachableFromBridgeMintedToken)    
 qed
 
@@ -3627,9 +3662,9 @@ proof (induction contractsDead contractsBD stepsBD rule: reachableFrom.induct)
       then have "accountBalance contractsLastUpdate' ?mintedToken caller' = amount'"
         by (metis (no_types, lifting) ERC20StateMintedTokenINotNone generateStateRootUpdate' mintedTokenITDB option.collapse reachableFrom_base.prems(1) verifyBalanceProofE)
       then have "balanceOf (tokenClaimsAndTransferBalances bridgeAddress token stepsInit) caller' = amount'" 
-        using tokenClaimsAndTransferBalanceAccountBalance
-        using notBridgeDeadContractsLastUpdate' reachableFromInitI reachableFrom_base.prems(2) totalBalanceZero
-        by blast
+        using tokenClaimsAndTransferBalanceAccountBalance[OF reachableFromInitI notBridgeDeadContractsLastUpdate' totalBalanceZero, of bridgeAddress token caller']
+        using reachableFrom_base.prems(2)
+        using properTokenFiniteBalancesMinted reachableFrom_base.prems(1) by blast
       then have **: "amount' \<le> balanceOf (nonWithdrawnTokenClaimsAndTransferBalances tokenDepositAddress bridgeAddress token stepsInit
           ((stepsNoUpdate @ [UPDATE_step]) @ stepsInit)) caller'"
         using nonWithdrawnTokenClaimsAndTransferBalanceBridgeDead
@@ -3712,8 +3747,8 @@ next
       then have "balanceOf (tokenClaimsAndTransferBalances bridgeAddress token stepsInit) caller' = amount'" 
         using tokenClaimsAndTransferBalanceAccountBalance
         using notBridgeDeadContractsLastUpdate' reachableFromInitI reachableFrom_step.prems(2) totalBalanceZero
+        using properTokenFiniteBalancesMinted reachableFrom_step.prems(1)
         by blast
-
       moreover
 
       have "getTokenWithdrawn (the (tokenDepositState contractsBD' tokenDepositAddress)) (hash2 caller' token) = False"
@@ -3749,6 +3784,7 @@ lemma withdrawnAmountInvariant:
   sorry
 
 theorem tokenDepositBalance:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   shows "tokenDepositBalance contractsBD token tokenDepositAddress = 
          nonCanceledNonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD + 
          nonWithdrawnClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
@@ -3756,6 +3792,7 @@ theorem tokenDepositBalance:
   using withdrawnAmountInvariant[of token]
   using canceledAmountInvariant[of token]
   using depositTokenAmountEqualsClaimedPlusNonClaimed[of tokenDepositAddress token stepsAllBD bridgeAddress stepsInit]
+  using assms
   by simp
 
 end
@@ -3970,7 +4007,7 @@ proof-
             by (metis HashProofVerifier.DEPOSIT_amount.simps HashProofVerifier_axioms image_eqI image_set)
         qed
         then show ?thesis
-          using tokenDepositBalance[of token]
+          using tokenDepositBalance[of token] assms
           by simp
       qed
     next
@@ -4080,7 +4117,7 @@ proof-
           by (meson order_refl totalBalance_removeFromBalance(1))
       qed
       then show ?thesis
-        using tokenDepositBalance
+        using tokenDepositBalance assms
         by simp
     qed
   next
