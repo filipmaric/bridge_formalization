@@ -14,7 +14,7 @@ lemma ERC20constructorBalanceOf [simp]:
 
 subsection \<open>callBalanceOf\<close>
 
-lemma callBalanceOf [simp]:
+lemma callBalanceOf:
   assumes "callBalanceOf contracts token account = (Success, balance)"
   shows "accountBalance contracts token account = balance"
   using assms
@@ -106,14 +106,14 @@ lemma transferBalanceBalanceOfOther [simp]:
 
 subsection \<open>safeTransferFrom\<close>
 
-lemma safeTransferFromFail [simp]:
+lemma safeTransferFromFail:
   assumes "safeTransferFrom state caller to amount = (Fail str, state')"
   shows "state' = state"
   using assms
   unfolding safeTransferFrom_def
   by (simp split: if_split_asm)
 
-lemma callSafeTransferFromFail [simp]:
+lemma callSafeTransferFromFail:
   assumes "callSafeTransferFrom contracts address caller to amount = (Fail str, contracts')"
   shows "contracts' = contracts"
   using assms
@@ -121,15 +121,15 @@ lemma callSafeTransferFromFail [simp]:
   by (simp split: option.splits prod.splits if_split_asm)
 
 lemma safeTransferFromBalanceOfTo:
-  assumes "(Success, state') = safeTransferFrom state caller to amount" 
+  assumes "safeTransferFrom state caller to amount = (Success, state')" 
   shows "balanceOf state' to =
          balanceOf state to + amount"
   using assms
   unfolding safeTransferFrom_def
-  by (simp split: if_split_asm)
+  by (auto split: if_split_asm)
 
 lemma safeTransferFromBalanceOfCaller:
-  assumes "(Success, state') = safeTransferFrom state caller to amount" 
+  assumes "safeTransferFrom state caller to amount = (Success, state')" 
   shows "balanceOf state caller \<ge> amount" 
         "balanceOf state' caller =
          balanceOf state caller - amount"
@@ -139,12 +139,12 @@ lemma safeTransferFromBalanceOfCaller:
 
 lemma safeTransferFromBalanceOfOther:
   assumes "other \<noteq> caller" "other \<noteq> to" 
-  assumes "(Success, state') = safeTransferFrom state caller to amount" 
+  assumes "safeTransferFrom state caller to amount = (Success, state')" 
   shows "balanceOf state' other =
          balanceOf state other"
   using assms
   unfolding safeTransferFrom_def
-  by (simp split: if_split_asm)
+  by (auto split: if_split_asm)
 
 lemma callSafeTransferFromBalanceOfTo:
   assumes "callBalanceOf contracts token to = (Success, balanceBefore)"
@@ -163,46 +163,46 @@ lemma callSafeTransferFromBalanceOfTo':
   shows "balanceAfter - balanceBefore = amount"
   by (metis add_diff_cancel_left' assms callSafeTransferFromBalanceOfTo)
 
-lemma callSafeTransferFromBalanceOfOther [simp]:
+lemma callSafeTransferFromBalanceOfOther:
   assumes "address' \<noteq> caller" "address' \<noteq> to"
   assumes "callSafeTransferFrom contracts token caller to amount = (Success, contracts')"
   shows "accountBalance contracts' token address' = 
          accountBalance contracts token address'"
-  using assms safeTransferFromBalanceOfOther[of address' caller to "the (ERC20state contracts' token)" "the (ERC20state contracts token)" amount]
+  using assms safeTransferFromBalanceOfOther[of address' caller to "the (ERC20state contracts token)" amount "the (ERC20state contracts' token)"]
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def  split: option.splits prod.splits if_split_asm)
 
 lemma callSafeTransferFromITokenPairs [simp]:
   assumes "callSafeTransferFrom contracts token caller to amount = (status, contracts')"
-  shows "ITokenPairs contracts = ITokenPairs contracts'"
+  shows "ITokenPairs contracts' = ITokenPairs contracts"
   using assms
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callSafeTransferFromITokenDeposit [simp]:
   assumes "callSafeTransferFrom contracts token caller to amount = (status, contracts')"
-  shows "ITokenDeposit contracts = ITokenDeposit contracts'"
+  shows "ITokenDeposit contracts' = ITokenDeposit contracts"
   using assms
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callSafeTransferFromIBridge [simp]:
   assumes "callSafeTransferFrom contracts token caller to amount = (status, contracts')"
-  shows "IBridge contracts = IBridge contracts'"
+  shows "IBridge contracts' = IBridge contracts"
   using assms
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callSafeTransferFromIProofVerifier [simp]:
   assumes "callSafeTransferFrom contracts token caller to amount = (status, contracts')"
-  shows "IProofVerifier contracts = IProofVerifier contracts'"
+  shows "IProofVerifier contracts' = IProofVerifier contracts"
   using assms
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callSafeTransferFromIStateOracle [simp]: 
   assumes "callSafeTransferFrom contracts token caller address amount = (Success, contracts')"
-  shows "IStateOracle contracts = IStateOracle contracts'"
+  shows "IStateOracle contracts' = IStateOracle contracts"
   using assms
   unfolding callSafeTransferFrom_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -215,7 +215,7 @@ lemma callSafeTransferFromERC20state:
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 text \<open>transferring does not affect other tokens\<close>
-lemma callSafeTransferFromOtherToken [simp]: 
+lemma callSafeTransferFromOtherToken: 
   assumes "token' \<noteq> token"
           "callSafeTransferFrom contracts token caller to amount = (status, contracts')"
   shows "ERC20state contracts' token' = ERC20state contracts token'"
@@ -251,8 +251,8 @@ lemma mintBalanceOf [simp]:
   by auto
 
 lemma mintBalanceOfOther [simp]:
-  assumes "other \<noteq> account" "mint state account amount = state'"
-  shows "balanceOf state' other = balanceOf state other"
+  assumes "other \<noteq> account"
+  shows "balanceOf (mint state account amount) other = balanceOf state other"
   using assms
   unfolding mint_def
   by auto
@@ -265,7 +265,7 @@ lemma callMintBalanceOf [simp]:
   unfolding callMint_def
   by (auto simp add: Let_def split: option.splits)
 
-lemma callMintBalanceOfOther [simp]:
+lemma callMintBalanceOfOther:
   assumes "other \<noteq> account"
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
   shows "accountBalance contracts' mintedToken other = 
@@ -276,35 +276,35 @@ lemma callMintBalanceOfOther [simp]:
 
 lemma callMintITokenPairs [simp]:
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "ITokenPairs contracts = ITokenPairs contracts'"
+  shows "ITokenPairs contracts' = ITokenPairs contracts"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callMintITokenDeposit [simp]:
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "ITokenDeposit contracts = ITokenDeposit contracts'"
+  shows "ITokenDeposit contracts' = ITokenDeposit contracts"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callMintIBridge [simp]:
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "IBridge contracts = IBridge contracts'"
+  shows "IBridge contracts' = IBridge contracts"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callMintIProofVerifier [simp]:
   assumes "callMint contracts mintedToken account amount = (Success, contracts')"
-  shows "IProofVerifier contracts = IProofVerifier contracts'"
+  shows "IProofVerifier contracts' = IProofVerifier contracts"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
 
 lemma callMintIStateOracle [simp]: 
   assumes "callMint contracts token (sender msg) amount = (Success, contracts')"
-  shows "IStateOracle contracts = IStateOracle contracts'"
+  shows "IStateOracle contracts' = IStateOracle contracts"
   using assms
   unfolding callMint_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -339,6 +339,110 @@ lemma callMintI:
   shows "fst (callMint contracts mintedToken (sender msg) amount) = Success"
   using assms
   unfolding callMint_def
+  by (auto split: option.splits)
+
+
+subsection \<open>burn\<close>
+
+lemma burnBalanceOf [simp]:
+  assumes "balanceOf state account \<ge> amount"
+  shows
+     "balanceOf (burn state account amount) account = balanceOf state account - amount"
+  using assms
+  unfolding burn_def
+  by auto
+
+lemma burnBalanceOfOther [simp]:
+  assumes "other \<noteq> account"
+  shows "balanceOf (burn state account amount) other = balanceOf state other"
+  using assms
+  unfolding burn_def
+  by auto
+
+lemma callBurnBalanceOf:
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "accountBalance contracts' mintedToken account =
+         accountBalance contracts mintedToken account - amount"
+        "amount \<le> accountBalance contracts mintedToken account"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: option.splits if_split_asm)
+
+lemma callBurnBalanceOfOther:
+  assumes "other \<noteq> account"
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "accountBalance contracts' mintedToken other = 
+         accountBalance contracts mintedToken other"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: option.splits if_split_asm)
+
+lemma callBurnITokenPairs [simp]:
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "ITokenPairs contracts' = ITokenPairs contracts"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
+
+lemma callBurnITokenDeposit [simp]:
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "ITokenDeposit contracts' = ITokenDeposit contracts"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
+
+lemma callBurnIBridge [simp]:
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "IBridge contracts' = IBridge contracts"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
+
+lemma callBurnIProofVerifier [simp]:
+  assumes "callBurn contracts mintedToken account amount = (Success, contracts')"
+  shows "IProofVerifier contracts' = IProofVerifier contracts"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
+
+lemma callBurnIStateOracle [simp]: 
+  assumes "callBurn contracts token (sender msg) amount = (Success, contracts')"
+  shows "IStateOracle contracts' = IStateOracle contracts"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callBurnERC20state:
+  assumes "callBurn contracts token caller amount = (Success, contracts')"
+  shows "ERC20state contracts token \<noteq> None" and "ERC20state contracts' token \<noteq> None"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+text \<open>minting does not affect other tokens\<close>
+lemma callBurnOtherToken: 
+  assumes "token' \<noteq> token"
+          "callBurn contracts token caller amount = (status, contracts')"
+  shows "ERC20state contracts' token' = ERC20state contracts token'"
+  using assms
+  unfolding callBurn_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callBurnFiniteBalances:
+  assumes "finiteBalances contracts token'"
+  assumes "callBurn contracts token caller amount = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+  using assms
+  unfolding finiteBalances_def
+  by (auto simp add: callBurn_def burn_def removeFromBalance_def Mapping.lookup_update' split: option.splits if_split_asm)
+
+text \<open>Sufficient condition for callMint to succeed\<close>
+lemma callBurnI: 
+  assumes "ERC20state contracts mintedToken \<noteq> None" \<comment> \<open>minted token contract exists\<close>
+  assumes "balanceOf (the (ERC20state contracts mintedToken)) caller \<ge> amount"
+  shows "fst (callBurn contracts mintedToken caller amount) = Success"
+  using assms
+  unfolding callBurn_def
   by (auto split: option.splits)
 
 subsection \<open>Total balance of a state\<close>
@@ -379,7 +483,7 @@ lemma totalBalance_addToBalance [simp]:
   unfolding totalBalance_def addToBalance_def
   by simp
 
-lemma totalBalance_removeFromBalance:
+lemma totalBalance_removeFromBalance [simp]:
   assumes "finite (Mapping.keys (balances state))"
   assumes "amount \<le> balanceOf state caller"
   shows
@@ -418,7 +522,7 @@ lemma totalBalanceGeqUserBalance:
   using mapping_value_sum_geq_entry[OF assms]
   by simp
 
-lemma callMint_total_balance [simp]:
+lemma callMintTotalBalance [simp]:
   assumes "finiteBalances contracts token"
   assumes "callMint contracts token caller amount = (Success, contracts')"
   shows "totalTokenBalance contracts' token = 
@@ -426,5 +530,19 @@ lemma callMint_total_balance [simp]:
   using assms
   unfolding callMint_def mint_def finiteBalances_def
   by (auto simp add: Let_def split: option.splits)
+
+lemma callBurnTotalBalance [simp]:
+  assumes "finiteBalances contracts token"
+  assumes "callBurn contracts token caller amount = (Success, contracts')"
+  shows "totalTokenBalance contracts' token = 
+         totalTokenBalance contracts token - amount \<and> amount \<le> totalTokenBalance contracts token"
+proof-
+  have "balanceOf (the (ERC20state contracts token)) caller \<ge> amount"
+    using assms(2) callBurnBalanceOf(2) by blast
+  then show ?thesis
+    using assms totalBalance_removeFromBalance
+    unfolding callBurn_def burn_def finiteBalances_def
+    by (auto simp add: Let_def split: option.splits if_split_asm)
+qed
 
 end

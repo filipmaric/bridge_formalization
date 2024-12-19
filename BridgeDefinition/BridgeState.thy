@@ -72,13 +72,12 @@ lemma callClaimBalanceOfMinted:
 
 lemma callClaimOtherToken:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  assumes "mintedToken = mintedTokenB contracts address token"
-  assumes "mintedToken \<noteq> token'"
+  assumes "token' \<noteq> mintedTokenB contracts address token"
   shows "ERC20state contracts' token' = ERC20state contracts token'"
   using assms 
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
-     (metis callMintITokenPairs callMintOtherToken callOriginalToMinted)
+     (metis callMintOtherToken callOriginalToMinted)
  (* FIXME: avoid proof after auto *)
 
 lemma callClaimTotalBalance:
@@ -101,7 +100,7 @@ proof-
     unfolding  Let_def stateBridge_def
     by simp
   then show ?thesis
-    using assms callMint_total_balance
+    using assms callMintTotalBalance
     unfolding callClaim_def claim_def stateBridge_def finiteBalances_def
     by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 qed
@@ -112,15 +111,15 @@ lemma finiteBalancesSetBridgeState:
   using assms
   by (simp add: finiteBalances_def)
 
-lemma callClaimFiniteBalances [simp]:
+lemma callClaimFiniteBalances:
   assumes "finiteBalances contracts token'"
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
   shows "finiteBalances contracts' token'"
   using assms
   unfolding callClaim_def claim_def
   apply (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
-  using callMintFiniteBalances finiteBalancesSetBridgeState by blast
-  (* FIXME: avoid methods after auto *)
+  apply (metis callMintFiniteBalances callMintIBridge finiteBalancesSetBridgeState)
+  done (* FIXME: avoid mehtods after auto *)
 
 lemma callClaimCallLastState:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -128,7 +127,7 @@ lemma callClaimCallLastState:
          (Success, lastStateB contracts address)"
   using assms callLastState
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def simp del: callLastState split: option.splits prod.splits if_split_asm)
+  by (auto split: option.splits prod.splits if_split_asm)
 
 
 lemma callClaimCallVerifyProof:
@@ -142,7 +141,7 @@ lemma callClaimCallVerifyProof:
            proof = Success"
   using assms callLastState
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def simp del: callLastState split: option.splits prod.splits if_split_asm)
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimVerifyProof:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -179,7 +178,7 @@ lemma callClaimIProofVerifier [simp]:
 
 lemma callClaimIStateOracle [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "IStateOracle contracts = IStateOracle contracts'"
+  shows "IStateOracle contracts' = IStateOracle contracts"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -271,7 +270,7 @@ lemma callClaimOtherAddress [simp]:
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 
-lemma callClaimGetLastValidStateTD [simp]:
+lemma callClaimLastValidStateTD [simp]:
   assumes "callClaim contracts bridgeAddress msg ID token amount proof = (Success, contracts')"
   shows "lastValidStateTD contracts' tokenDepositAddress = 
          lastValidStateTD contracts tokenDepositAddress"
@@ -325,6 +324,286 @@ proof-
     by (auto simp add: Let_def split: option.splits prod.splits if_split_asm) (*FIXME*)
 qed
 
+subsection \<open>callWithdraw\<close>
+
+lemma withdrawFail:
+  assumes "withdraw contracts msg state ID token amount = (Fail str, state', contracts')"
+  shows "state' = state" and "contracts' = contracts"
+  using assms
+  unfolding withdraw_def
+  by (auto simp add: Let_def split: if_split_asm prod.splits)
+
+lemma callWithdrawFail:
+  assumes "callWithdraw contracts address msg ID token amount = (Fail str, contracts')"
+  shows "contracts' = contracts"
+  using assms withdrawFail
+  unfolding callWithdraw_def
+  by (simp split: option.splits prod.splits if_split_asm)
+
+lemma withdrawWritesWithdrawal:
+  assumes "withdraw contracts msg state ID token amount = (Success, state', contracts')" 
+  shows "getWithdrawal state' ID = hash3 (sender msg) token amount"
+  using assms
+  unfolding withdraw_def
+  by (auto simp add: Let_def Mapping.lookup_default_update split: prod.splits if_split_asm)
+
+lemma callWithdrawWritesWithdrawal:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 (sender msg) token amount"
+  using assms withdrawWritesWithdrawal
+  unfolding callWithdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+end
+
+context StrongHashProofVerifier
+begin
+
+text \<open>There can be no double withdraw\<close>
+(* TODO: this is just an illustration - the lemma should be generalized to non-consecutive states *)
+lemma callWithdrawNoDouble:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "fst (callWithdraw contracts' address msg' ID token' amount') \<noteq> Success"
+proof-
+  have "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 (sender msg) token amount"
+    using assms
+    by (simp add: callWithdrawWritesWithdrawal)
+  then show ?thesis
+    using hash3_nonzero[of "sender msg" token amount]
+    unfolding callWithdraw_def withdraw_def
+    by (auto simp add: Let_def split: prod.splits option.splits if_split_asm)
+qed
+end
+
+context HashProofVerifier
+begin
+
+lemma withdrawE:
+  assumes "withdraw contracts msg state ID token amount = (Success, state', contracts')"
+          "state = the (bridgeState contracts address)"
+  shows "state' = setWithdrawal state ID (hash3 (sender msg) token amount)"
+        "callBurn contracts (mintedTokenB contracts address token) (sender msg) amount = (Success, contracts')"
+        "let mintedToken = mintedTokenB contracts address token;
+             mintedState = the (ERC20state contracts mintedToken)
+          in contracts' = setERC20State contracts mintedToken (burn mintedState (sender msg) amount)"
+  using assms callOriginalToMinted[of contracts "BridgeState.tokenPairs state" token]
+  unfolding withdraw_def callBurn_def
+  by (auto split: option.splits if_split_asm prod.splits)
+
+lemma callWithdrawE:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  obtains contracts'' state' where 
+    "withdraw contracts msg (the (bridgeState contracts address)) ID token amount = (Success, state', contracts'')"
+    "contracts' = setBridgeState contracts'' address state'"
+  using assms
+  unfolding callWithdraw_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
+lemma withdrawBalanceOfSender:
+  assumes "withdraw contracts msg state ID token amount = (Success, state', contracts')"
+          "state = the (bridgeState contracts address)"
+  assumes "stateTokenPairs = the (tokenPairsState contracts (tokenPairs state))"
+  assumes "mintedToken = getMinted stateTokenPairs token"
+  shows "accountBalance (setBridgeState contracts' address state') mintedToken (sender msg) =
+         accountBalance contracts mintedToken (sender msg) - amount \<and> amount \<le> accountBalance contracts mintedToken (sender msg)"
+proof-
+  have "getMinted (the (tokenPairsState contracts (BridgeState.tokenPairs state))) token = mintedTokenB contracts address token"
+    using assms(2) by blast
+  then show ?thesis
+    using  assms callBurnBalanceOf[OF withdrawE(2)[OF assms(1-2)]]
+    by (metis Contracts.ext_inject Contracts.surjective Contracts.update_convs(5))
+qed
+
+lemma callWithdrawBalanceOfSender:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  shows "accountBalance contracts' mintedToken (sender msg) =
+         accountBalance contracts mintedToken (sender msg) - amount \<and> 
+         accountBalance contracts mintedToken (sender msg) \<ge> amount"
+proof-
+  obtain contracts'' state' where 
+     *: "withdraw contracts msg (the (bridgeState contracts address)) ID token amount = (Success, state', contracts'')"
+        "contracts' = setBridgeState contracts'' address state'"
+    using callWithdrawE assms
+    by blast
+  then show ?thesis
+    using withdrawBalanceOfSender[OF *(1)]
+    using assms(2)
+    by blast
+qed
+    
+
+lemma callWithdrawOtherToken:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  assumes "mintedToken = mintedTokenB contracts address token"
+  assumes "mintedToken \<noteq> token'"
+  shows "ERC20state contracts' token' = ERC20state contracts token'"
+proof-
+  obtain contracts'' state' where 
+     *: "withdraw contracts msg (the (bridgeState contracts address)) ID token amount = (Success, state', contracts'')"
+        "contracts' = setBridgeState contracts'' address state'"
+    using assms callWithdrawE
+    by blast
+  then show ?thesis
+    using assms(2-3) callBurnITokenPairs callBurnOtherToken callOriginalToMinted
+    by (metis Contracts.select_convs(1) Contracts.surjective Contracts.update_convs(5) withdrawE(2))
+qed
+
+lemma callWithdrawTotalBalance:
+  assumes "finiteBalances contracts mintedToken"
+  assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
+  assumes "mintedTokenB contracts bridgeAddress token = mintedToken"
+  shows "totalTokenBalance contracts' mintedToken =
+         totalTokenBalance contracts mintedToken - amount \<and> amount \<le> totalTokenBalance contracts mintedToken"
+proof-
+  obtain contracts'' state' where 
+     *: "withdraw contracts msg (the (bridgeState contracts bridgeAddress)) ID token amount = (Success, state', contracts'')"
+        "contracts' = setBridgeState contracts'' bridgeAddress state'"
+    using assms callWithdrawE
+    by blast
+  then show ?thesis
+    using withdrawE[OF *(1), of bridgeAddress]
+    using callBurnTotalBalance[OF assms(1)]
+    by (metis Contracts.select_convs(1) Contracts.surjective Contracts.update_convs(5) assms(3))
+qed
+
+lemma callWithdrawFiniteBalances [simp]:
+  assumes "finiteBalances contracts token'"
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "finiteBalances contracts' token'"
+proof-
+  obtain contracts'' state' where 
+     *: "withdraw contracts msg (the (bridgeState contracts address)) ID token amount = (Success, state', contracts'')"
+        "contracts' = setBridgeState contracts'' address state'"
+    using assms callWithdrawE
+    by blast
+  then show ?thesis
+    by (metis (no_types, lifting) Contracts.select_convs(1) Contracts.surjective Contracts.update_convs(5) assms(1) callBurnFiniteBalances finiteBalances_def withdrawE(2))
+qed
+
+lemma callWithdrawITokenPairs [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "ITokenPairs contracts' = ITokenPairs contracts"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawITokenDeposit [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "ITokenDeposit contracts' = ITokenDeposit contracts"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawIProofVerifier [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "IProofVerifier contracts' = IProofVerifier contracts"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawIStateOracle [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "IStateOracle contracts' = IStateOracle contracts"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawDeposit [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "depositAddressB contracts' address =
+         depositAddressB contracts address"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawTokenPairs [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "tokenPairsAddressB contracts' address = 
+         tokenPairsAddressB contracts address"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawStateOracle [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "stateOracleAddressB contracts' address = 
+         stateOracleAddressB contracts address"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawProofVerifier [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "proofVerifierAddressB contracts' address =
+         proofVerifierAddressB contracts address"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawDeadState [simp]:
+  assumes "callWithdraw contracts address msg ID token amount  = (Success, contracts')"
+  shows "deadStateTD contracts' tokenDepositAddress = 
+         deadStateTD contracts tokenDepositAddress"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawBridgeState:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows "bridgeState contracts address \<noteq> None" and "bridgeState contracts' address \<noteq> None"
+  using assms
+  unfolding callWithdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawPreservesClaims [simp]:
+  assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
+  shows   "claims (the (bridgeState contracts' address)) = claims (the (bridgeState contracts address))"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawERC20state:
+  assumes "callWithdraw contracts address msg ID token amount  = (Success, contracts')"
+  assumes "ERC20state contracts token' \<noteq> None"
+  shows "ERC20state contracts' token' \<noteq> None"
+  using assms callBurnERC20state callBurnOtherToken
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm) metis (* FIXME: method after auto *)
+
+lemma callWithdrawOtherAddress [simp]: 
+  assumes "address' \<noteq> address"
+          "callWithdraw contracts address msg ID token amount = (status, contracts')"
+  shows "bridgeState contracts' address' = bridgeState contracts address'"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawtLastValidStateTD [simp]:
+  assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
+  shows "lastValidStateTD contracts' tokenDepositAddress = 
+         lastValidStateTD contracts tokenDepositAddress"
+  using assms
+  using callWithdrawIStateOracle callWithdrawITokenDeposit callLastState_def lastValidState_def 
+  by metis
+
+text \<open>Sufficient conditions for a withdraw\<close>
+lemma callWithdrawI:
+  assumes "bridgeState contracts address \<noteq> None"
+  assumes "tokenPairsState contracts (tokenPairsAddressB contracts address) \<noteq> None"
+  assumes "stateOracleState contracts (stateOracleAddressB contracts address) \<noteq> None"
+  assumes "proofVerifierState contracts (proofVerifierAddressB contracts address) \<noteq> None"
+  assumes "ERC20state contracts (mintedTokenB contracts address token) \<noteq> None" 
+  assumes "mintedTokenB contracts address token \<noteq> 0"
+  assumes "amount \<le> accountBalance contracts (mintedTokenB contracts address token) (sender msg)"
+  \<comment> \<open>There must not be a prior withdraw with the same ID\<close>
+  assumes "getWithdrawal (the (bridgeState contracts address)) ID = 0"
+  assumes "amount > 0"
+  shows "fst (callWithdraw contracts address msg ID token amount) = Success"
+  using assms callOriginalToMintedI[OF assms(2), of token] callOriginalToMinted[of contracts "tokenPairsAddressB contracts address" token]
+  using callBurnI[OF assms(5) assms(7)]
+  unfolding callWithdraw_def withdraw_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
 subsection \<open>callVerifyClaimProof\<close>
 
 lemma callVerifyClaimProofI:
@@ -369,7 +648,7 @@ proof-
   then show "amount \<le> accountBalance contracts mintedToken caller"
             "accountBalance contracts' mintedToken caller =
              accountBalance contracts mintedToken caller - amount"
-    using safeTransferFromBalanceOfCaller[of _ _ caller receiver amount]
+    using safeTransferFromBalanceOfCaller
     unfolding callSafeTransferFrom_def
     by (auto  split: option.splits prod.splits if_split_asm)
 qed

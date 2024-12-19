@@ -52,6 +52,11 @@ record TokenPairsState =
 
 section \<open>Token deposit\<close>
 
+locale TokenDepositStateLocale = 
+  fixes getDeposit :: "'a \<Rightarrow> uint256 \<Rightarrow> bytes32"
+  fixes setDeposit :: "'a \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> 'a"
+  assumes "getDeposit (setDeposit s key value) key' = (if key' = key then value else getDeposit s key')"
+
 record TokenDepositState = 
    deposits :: "(uint256, bytes32) mapping"
    claims :: "(uint256, bool) mapping"
@@ -77,6 +82,13 @@ abbreviation setTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rig
 definition TIME_UNTIL_DEAD :: nat where
   "TIME_UNTIL_DEAD = 7 * 24 * 60 * 60" 
 
+interpretation TokenDepositStateLocale getDeposit setDeposit
+proof
+  fix s key "value" key'
+  show "getDeposit (setDeposit s key value) key' = (if key' = key then value else getDeposit s key')"
+    by (auto simp add: lookupNat_def lookup_default_update lookup_default_update_neq)
+qed
+
 text \<open>Bridge\<close>
 
 record BridgeState =
@@ -91,6 +103,11 @@ abbreviation getClaim :: "BridgeState \<Rightarrow> uint256 \<Rightarrow> bool" 
   "getClaim state ID \<equiv> lookupBool (claims state) ID"
 abbreviation setClaim :: "BridgeState \<Rightarrow> uint256 \<Rightarrow> bool \<Rightarrow> BridgeState" where
   "setClaim state ID b \<equiv> state \<lparr> claims := Mapping.update ID b (claims state) \<rparr>"
+
+abbreviation getWithdrawal :: "BridgeState \<Rightarrow> uint256 \<Rightarrow> bytes32" where
+  "getWithdrawal state ID \<equiv> lookupNat (withdrawals state) ID"
+abbreviation setWithdrawal :: "BridgeState \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> BridgeState" where
+  "setWithdrawal state ID w \<equiv> state \<lparr> withdrawals := Mapping.update ID w (withdrawals state) \<rparr>"
 
 text \<open>ProofVerifier\<close>
 \<comment> \<open>it has no state\<close>
@@ -220,6 +237,22 @@ definition callMint :: "Contracts \<Rightarrow> address \<Rightarrow> address \<
                (Fail ''wrong address'', contracts)
           | Some state \<Rightarrow> 
                (Success, setERC20State contracts address (mint state caller amount)))"
+
+text \<open>Burn the given amount of tokens from the caller \<close>
+definition burn :: "ERC20State \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> ERC20State" where
+  "burn state caller amount = removeFromBalance state caller amount"
+
+text \<open>Call via contract address\<close>
+definition callBurn :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> Status \<times> Contracts" where
+  "callBurn contracts address caller amount = 
+    (case ERC20state contracts address of
+            None \<Rightarrow>
+               (Fail ''wrong address'', contracts)
+          | Some state \<Rightarrow> 
+               if balanceOf state caller < amount then
+                 (Fail ''Insufficient tokens'', contracts)
+               else
+                 (Success, setERC20State contracts address (burn state caller amount)))"
 
 section \<open>TokenPairs\<close>
 
@@ -355,9 +388,9 @@ locale StrongHash = Hash +
     "\<And> x1 x2. hash2 x1 x2 \<noteq> 0"
   assumes hash3_nonzero:
     "\<And> x1 x2 x3. hash3 x1 x2 x3 \<noteq> 0"
-  assumes hash2_inj [simp]:
+  assumes hash2_inj:
     "hash2_inj"
-  assumes hash3_inj [simp]:
+  assumes hash3_inj:
     "hash3_inj"
 
 context Hash
@@ -569,6 +602,36 @@ definition callClaim where
                  else 
                     (Success, setBridgeState contracts' address state'))"
 
+definition withdraw where
+  "withdraw contracts msg state ID token amount = 
+    (if getWithdrawal state ID > 0 then
+        (Fail ''Withdrawal id is already used'', state, contracts)
+     else if amount = 0 then
+        (Fail ''No tokens to transfer'', state, contracts)
+     else let (status, mintedToken) = callOriginalToMinted contracts (tokenPairs state) token
+           in if status \<noteq> Success then
+                 (status, state, contracts)
+              else if mintedToken = 0 then
+                 (Fail ''No minted token for given token'', state, contracts)
+              else
+                 let state' = setWithdrawal state ID (hash3 (sender msg) token amount);
+                     (status, contracts') = callBurn contracts mintedToken (sender msg) amount
+                  in if status \<noteq> Success then 
+                        (status, state, contracts)
+                     else
+                        (Success, state', contracts'))"
+
+
+definition callWithdraw where
+  "callWithdraw contracts address msg ID token amount = 
+     (case bridgeState contracts address of
+           None \<Rightarrow> (Fail ''wrong address'', contracts)
+         | Some state \<Rightarrow> 
+             let (status, state', contracts') = withdraw contracts msg state ID token amount
+              in if status \<noteq> Success then
+                    (status, contracts)
+                 else 
+                    (Success, setBridgeState contracts' address state'))"
 
 text \<open>TokenDeposit\<close>
 

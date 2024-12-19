@@ -9,7 +9,7 @@ subsection \<open>lastState\<close>
 abbreviation lastStateSO where
    "lastStateSO contracts stateOracleAddress \<equiv> StateOracleState.lastState (the (stateOracleState contracts stateOracleAddress))"
 
-lemma callLastState [simp]:
+lemma callLastState:
   assumes "callLastState contracts stateOracleAddress = (Success, state)"
   shows "state = lastStateSO contracts stateOracleAddress"
   using assms
@@ -36,14 +36,14 @@ lemma callLastUpdateTimeI:
 
 subsection \<open>update\<close>
 
-lemma callUpdateLastState [simp]:
+lemma callUpdateLastState:
   assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
   shows "lastStateSO contracts' address = stateRoot"
   using assms
   unfolding callUpdate_def update_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
-lemma callUpdateStateOracleState [simp]:
+lemma callUpdateStateOracleState:
   assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
   shows "stateOracleState contracts address \<noteq> None" and
         "stateOracleState contracts' address \<noteq> None"
@@ -97,12 +97,12 @@ lemma callUpdateDeadState [simp]:
 lemma callUpdateOtherAddress:
   assumes "address' \<noteq> address"
   assumes "callUpdate contracts address' block blockNum stateRoot = (Success, contracts')"
-  shows "stateOracleState contracts address = stateOracleState contracts' address"
+  shows "stateOracleState contracts' address = stateOracleState contracts address"
   using assms
   unfolding callUpdate_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
-lemma callWithdrawWhileDeadGetLastValidStateTD [simp]:
+lemma callUpdateLastValidStateTD [simp]:
   assumes "address' \<noteq> stateOracleAddressTD contracts tokenDepositAddress"
   assumes "callUpdate contracts address' block blockNum stateRoot = (Success, contracts')"
   shows "lastValidStateTD contracts' tokenDepositAddress = 
