@@ -59,7 +59,7 @@ locale TokenDepositStateLocale =
 
 record TokenDepositState = 
    deposits :: "(uint256, bytes32) mapping"
-   claims :: "(uint256, bool) mapping"
+   releases :: "(uint256, bool) mapping"
    tokenWithdrawn :: "(bytes32, bool) mapping"
    proofVerifier :: address
    bridge :: address
@@ -78,6 +78,11 @@ abbreviation getTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rig
   "getTokenWithdrawn state withdrawHash \<equiv> lookupBool (tokenWithdrawn state) withdrawHash"
 abbreviation setTokenWithdrawn :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> TokenDepositState" where
   "setTokenWithdrawn state withdrawHash \<equiv>  state \<lparr> tokenWithdrawn := Mapping.update withdrawHash True (tokenWithdrawn state)\<rparr>"
+
+abbreviation getRelease :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> bool" where
+  "getRelease state ID \<equiv> lookupBool (releases state) ID"
+abbreviation setRelease :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow> bool \<Rightarrow> TokenDepositState" where
+  "setRelease state ID b \<equiv> state \<lparr> releases := Mapping.update ID b (releases state) \<rparr>"
 
 definition TIME_UNTIL_DEAD :: nat where
   "TIME_UNTIL_DEAD = 7 * 24 * 60 * 60" 
@@ -322,7 +327,7 @@ section \<open>Token deposit\<close>
 definition TokenDepositConstructor :: "address \<Rightarrow> address \<Rightarrow> address \<Rightarrow> address \<Rightarrow> TokenDepositState" where
   "TokenDepositConstructor proofVerifier' bridge' tokenPairs' stateOracle' = 
       \<lparr> deposits = Mapping.empty,
-        claims = Mapping.empty,
+        releases = Mapping.empty,
         tokenWithdrawn = Mapping.empty,
         proofVerifier = proofVerifier',
         bridge = bridge',
@@ -500,7 +505,6 @@ locale ProofVerifier =
          bridgeState contracts bridgeAddress = Some state\<rbrakk> \<Longrightarrow>
          getClaim state ID = False"
 
-
   \<comment> \<open>verifyBalanceProof proofVerifierState token caller amount stateRoot proof\<close> 
   fixes verifyBalanceProof :: "unit \<Rightarrow> address \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> bytes \<Rightarrow> bool"
   fixes generateBalanceProof :: "Contracts \<Rightarrow> address \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes"
@@ -519,6 +523,26 @@ locale ProofVerifier =
          ERC20state contracts token = Some state\<rbrakk> \<Longrightarrow>
          balanceOf state caller = amount"
 
+  \<comment> \<open>verifyBurnProof proofVerifierState token caller amount stateRoot proof\<close> 
+  fixes verifyBurnProof :: "unit \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> bytes32 \<Rightarrow> bytes \<Rightarrow> bool"
+  fixes generateBurnProof :: "Contracts \<Rightarrow> uint256 \<Rightarrow> bytes"
+
+  assumes verifyBurnProofI:
+    "\<And> bridgeAddress contracts ID stateRoot proof state val. 
+        \<lbrakk>generateBurnProof contracts ID = proof; 
+         generateStateRoot contracts = stateRoot; 
+         bridgeState contracts bridgeAddress = Some state;
+         getWithdrawal state ID = val\<rbrakk> \<Longrightarrow>
+            verifyBurnProof () bridgeAddress ID val stateRoot proof = True" 
+
+  assumes verifyBurnProofE:
+    "\<And> bridgeAddress contracts ID stateRoot proof state val. 
+        \<lbrakk>generateStateRoot contracts = stateRoot; 
+         verifyBurnProof () bridgeAddress ID val stateRoot proof = True;
+         bridgeState contracts bridgeAddress = Some state\<rbrakk> \<Longrightarrow>
+         getWithdrawal state ID = val"
+
+  \<comment> \<open>Assumes that stateRoot has been successfully been agreed upon\<close>
   assumes updateSuccess:
         "\<And> contracts address block blockNum stateRoot contracts'.
          \<lbrakk>callUpdate contracts address block blockNum stateRoot = (Success, contracts')\<rbrakk> \<Longrightarrow> 
@@ -556,6 +580,18 @@ definition callVerifyBalanceProof where
                Fail ''wrong address''
           | Some state \<Rightarrow> 
                if \<not> verifyBalanceProof state token caller amount stateRoot proof then
+                  Fail ''proof verification failed''
+               else
+                  Success)"
+
+
+definition callVerifyBurnProof where
+  "callVerifyBurnProof contracts proofVerifierAddress bridgeAddress ID v stateRoot proof =
+      (case proofVerifierState contracts proofVerifierAddress of 
+            None \<Rightarrow>
+               Fail ''wrong address''
+          | Some state \<Rightarrow> 
+               if \<not> verifyBurnProof state bridgeAddress ID v stateRoot proof then
                   Fail ''proof verification failed''
                else
                   Success)"
@@ -704,6 +740,36 @@ definition callWithdrawWhileDead where
            None \<Rightarrow> (Fail ''wrong address'', contracts)
          | Some state \<Rightarrow> 
              let (status, state', contracts') = withdrawWhileDead state contracts address block msg token amount proof
+              in if status \<noteq> Success then
+                    (status, contracts)
+                 else 
+                    (Success, setTokenDepositState contracts' address state'))"
+
+definition release where 
+  "release state contracts this msg ID token amount proof =
+    (if getRelease state ID then 
+        (Fail ''Already claimed'', state, contracts)
+     else
+       let (status, stateRoot) = lastValidState contracts state
+        in if status \<noteq> Success then
+              (status, state, contracts)
+           else 
+                let expectedHash = hash3 (sender msg) token amount;
+                    status = callVerifyBurnProof contracts (TokenDepositState.proofVerifier state)  (TokenDepositState.bridge state) ID expectedHash stateRoot proof 
+                 in if status \<noteq> Success then
+                       (status, state, contracts)
+                     else let (status, contracts') = callSafeTransferFrom contracts token this (sender msg) amount
+                              in if status \<noteq> Success then
+                                    (status, state, contracts)
+                                 else
+                                    (Success, setRelease state ID True, contracts'))"
+
+definition callRelease where
+  "callRelease contracts address msg ID token amount proof = 
+     (case tokenDepositState contracts address of
+           None \<Rightarrow> (Fail ''wrong address'', contracts)
+         | Some state \<Rightarrow> 
+             let (status, state', contracts') = release state contracts address msg ID token amount proof
               in if status \<noteq> Success then
                     (status, contracts)
                  else 

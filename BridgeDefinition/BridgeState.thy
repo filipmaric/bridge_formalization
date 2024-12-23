@@ -37,6 +37,13 @@ lemma callClaimWritesClaim:
   unfolding callClaim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
+lemma callClaimGetClaimFalse: 
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  shows "getClaim (the (bridgeState contracts address)) ID = False"
+  using assms
+  unfolding callClaim_def claim_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
 text \<open>There can be no double claim\<close>
 (* TODO: this is just an illustration - the lemma should be generalized to non-consecutive states *)
 lemma callClaimNoDouble:
@@ -185,35 +192,35 @@ lemma callClaimIStateOracle [simp]:
 
 lemma callClaimDeposit [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "depositAddressB contracts' address =
-         depositAddressB contracts address"
+  shows "depositAddressB contracts' address' =
+         depositAddressB contracts address'"
   using assms
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimTokenPairs [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "tokenPairsAddressB contracts' address = 
-         tokenPairsAddressB contracts address"
+  shows "tokenPairsAddressB contracts' address' = 
+         tokenPairsAddressB contracts address'"
   using assms
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimStateOracle [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "stateOracleAddressB contracts' address = 
-         stateOracleAddressB contracts address"
+  shows "stateOracleAddressB contracts' address' = 
+         stateOracleAddressB contracts address'"
   using assms
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimProofVerifier [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "proofVerifierAddressB contracts' address =
-         proofVerifierAddressB contracts address"
+  shows "proofVerifierAddressB contracts' address' =
+         proofVerifierAddressB contracts address'"
   using assms
   unfolding callClaim_def claim_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimDeadState [simp]:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -229,6 +236,13 @@ lemma callClaimBridgeState:
   using assms
   unfolding callClaim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callClaimWithdrawals [simp]:
+  assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
+  shows "withdrawals (the (bridgeState contracts' bridgeAddress)) = withdrawals (the (bridgeState contracts bridgeAddress))"
+  using assms
+  unfolding callClaim_def claim_def Let_def
+  by (cases "address=bridgeAddress") (auto split: option.splits prod.splits if_split_asm)
 
 text \<open>The flag that records that money has been claimed cannot be unset\<close>
 lemma callClaimPreservesTrueClaim [simp]:
@@ -448,6 +462,23 @@ proof-
     by (metis Contracts.select_convs(1) Contracts.surjective Contracts.update_convs(5) withdrawE(2))
 qed
 
+lemma callWithdrawGetWithdrawalZero [simp]:
+  assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
+  shows "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
+lemma callWithdrawOtherID [simp]:
+  assumes "ID' \<noteq> ID"
+  assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
+  shows "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID' = 
+         getWithdrawal (the (bridgeState contracts bridgeAddress)) ID'"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto split: option.splits prod.splits if_split_asm)
+
+
 lemma callWithdrawTotalBalance:
   assumes "finiteBalances contracts mintedToken"
   assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
@@ -510,35 +541,35 @@ lemma callWithdrawIStateOracle [simp]:
 
 lemma callWithdrawDeposit [simp]:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows "depositAddressB contracts' address =
-         depositAddressB contracts address"
+  shows "depositAddressB contracts' address' =
+         depositAddressB contracts address'"
   using assms
   unfolding callWithdraw_def withdraw_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawTokenPairs [simp]:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows "tokenPairsAddressB contracts' address = 
-         tokenPairsAddressB contracts address"
+  shows "tokenPairsAddressB contracts' address' = 
+         tokenPairsAddressB contracts address'"
   using assms
   unfolding callWithdraw_def withdraw_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawStateOracle [simp]:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows "stateOracleAddressB contracts' address = 
-         stateOracleAddressB contracts address"
+  shows "stateOracleAddressB contracts' address' = 
+         stateOracleAddressB contracts address'"
   using assms
   unfolding callWithdraw_def withdraw_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawProofVerifier [simp]:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows "proofVerifierAddressB contracts' address =
-         proofVerifierAddressB contracts address"
+  shows "proofVerifierAddressB contracts' address' =
+         proofVerifierAddressB contracts address'"
   using assms
   unfolding callWithdraw_def withdraw_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawDeadState [simp]:
   assumes "callWithdraw contracts address msg ID token amount  = (Success, contracts')"
@@ -557,10 +588,10 @@ lemma callWithdrawBridgeState:
 
 lemma callWithdrawPreservesClaims [simp]:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows   "claims (the (bridgeState contracts' address)) = claims (the (bridgeState contracts address))"
+  shows   "claims (the (bridgeState contracts' address')) = claims (the (bridgeState contracts address'))"
   using assms
   unfolding callWithdraw_def withdraw_def
-  by (auto split: option.splits prod.splits if_split_asm)
+  by (cases "address'=address") (auto split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawERC20state:
   assumes "callWithdraw contracts address msg ID token amount  = (Success, contracts')"

@@ -57,4 +57,10 @@ proof
     by auto
 qed
 
+lemma sum_list_filter_P_notP:
+  fixes f :: "'a \<Rightarrow> nat"
+  shows "sum_list (map f xs) = 
+         sum_list (map f (filter (\<lambda> x. P x) xs)) + sum_list (map f (filter (\<lambda> x. \<not> P x) xs))"
+  by (induction xs) auto
+
 end
