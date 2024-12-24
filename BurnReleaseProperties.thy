@@ -5,6 +5,7 @@ begin
 context HashProofVerifier
 begin
 
+
 \<comment> \<open>Once written withdraw hash cannot be unset\<close>
 lemma reachableFromGetWithdrawalNoUnset:
   assumes "reachableFrom contracts contracts' steps"
@@ -131,7 +132,6 @@ next
   qed
 qed
 
-
 \<comment> \<open>BURN is not executable once the withdrawal flag is set\<close>
 lemma reachableFromGetWithrawalNoBurn:
   assumes "reachableFrom contracts contracts' steps"
@@ -139,6 +139,40 @@ lemma reachableFromGetWithrawalNoBurn:
   shows "\<nexists> caller token amount. BURN bridgeAddress caller ID token amount \<in> set steps"
   using assms
   by (smt (verit, best) HashProofVerifier.reachableFromStepInSteps HashProofVerifier_axioms callWithdrawGetWithdrawalZero executeStep.simps(3) reachableFromGetWithdrawalNoUnset)
+
+\<comment> \<open>BURN step sets the withdrawal flag\<close>
+lemma reachableFromBurnSetsFlag:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "BURN address caller ID token amount \<in> set steps"
+  shows "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 caller token amount"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+  proof (cases "BURN address caller ID token amount \<in> set steps")
+    case True
+    then have "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 caller token amount"
+      using reachableFrom_step.IH by auto
+    then show ?thesis
+      using hash3_nonzero[of caller token amount]
+      using reachableFromGetWithdrawalNoUnset[of contracts' contracts'' "[step]"]
+      by (metis reachableFrom.reachableFrom_step reachableFrom_base reachableFrom_step.hyps(2))
+  next
+    case False
+    then have "step = BURN address caller ID token amount"
+      using reachableFrom_step.prems
+      by simp
+    then show ?thesis
+      using reachableFrom_step.hyps(2)
+      by (simp add: callWithdrawWritesWithdrawal)
+  qed
+qed
+
+(* ---------------------------------------------------------------------_ *)
 
 text \<open>Once written release entry cannot be unset\<close>
 lemma reachableFromGetReleaseTrue:
@@ -159,6 +193,34 @@ next
       using reachableFrom_step callReleaseNotReleased[of contracts'] callReleaseOtherID callReleaseOtherAddress
       by (metis executeStep.simps(4))
   qed auto
+qed
+
+lemma reachableFromReleaseSetsFlag:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "RELEASE address caller ID token amount proof \<in> set steps"
+  shows "getRelease (the (tokenDepositState contracts' address)) ID = True"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+  proof (cases "RELEASE address caller ID token amount proof \<in> set steps")
+    case True
+    then show ?thesis
+      using reachableFrom.reachableFrom_step reachableFromGetReleaseTrue reachableFrom_base reachableFrom_step.IH reachableFrom_step.hyps(2) 
+      by blast
+  next
+    case False
+    then have "step = RELEASE address caller ID token amount proof"
+      using reachableFrom_step.prems
+      by simp
+    then show ?thesis
+      using reachableFrom_step.hyps(2)
+      by simp
+  qed
 qed
 
 end
@@ -347,40 +409,6 @@ qed
 
 end
 
-context HashProofVerifier
-begin
-
-(* FIXME: move *)
-lemma callUpdateBridgeNotDeadLastValidState:
-  assumes "callUpdate contracts (stateOracleAddressTD contracts address) block blockNum stateRoot = (Success, contracts')"
-  assumes "\<not> bridgeDead contracts address"
-  shows "snd (lastValidStateTD contracts' address) = stateRoot"
-  using assms
-  by (metis callLastState callLastStateI callUpdateITokenDeposit callUpdateLastState callUpdateStateOracleState(2) lastValidState_def surjective_pairing)
-
-end
-
-context HashProofVerifier
-begin
-
-(* FIXME: move *)
-lemma noUpdateNotBridgeDead:
-  assumes "reachableFrom contracts contracts' steps"
-  assumes "\<not> bridgeDead contracts tokenDepositAddress" "lastStateTD contracts tokenDepositAddress = 0"
-  assumes "\<nexists> stateRoot. UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot \<in> set steps"
-  shows "\<not> bridgeDead contracts' tokenDepositAddress"
-  using assms
-proof (induction contracts contracts' steps)
-  case (reachableFrom_base contracts)
-  then show ?case
-    by simp
-next
-  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
-  then show ?case
-    by (metis (no_types, lifting) BridgeDiesDeadState reachableFromDepositStateOracle list.set_intros(2) noUpdateLastState)
-qed
-
-end
 
 context Init
 begin

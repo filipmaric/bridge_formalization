@@ -24,7 +24,12 @@ primrec BURN_amount where
 
 primrec RELEASE_amount where
   "RELEASE_amount (RELEASE address caller ID token amount proof) = amount"
+
+fun TRANSFER_amount where
+  "TRANSFER_amount (TRANSFER address caller receiver token amount) = amount" 
+
 end
+
 
 (* ------------------------------------------------------------------------------------ *)
 section \<open>Deposited token amount\<close>
@@ -309,6 +314,24 @@ lemma withdrawnTokenAmountBridgeNotDead:
   using assms noWithdrawBeforeBridgeDead[OF assms]
   unfolding withdrawnTokenAmount_def tokenWithdrawals_def
   by (metis filter_False isTokenWithdrawal.elims(2) list.simps(8) sum_list.Nil)
+
+end
+
+
+(* ------------------------------------------------------------------------------------ *)
+section \<open>Transfered amount\<close>
+
+context HashProofVerifier
+begin
+
+fun isTransfer where
+   "isTransfer bridgeAddress token caller (TRANSFER address' caller' receiver' token' amount') \<longleftrightarrow>
+      address' = bridgeAddress \<and> caller' = caller \<and> token' = token"
+|  "isTransfer bridgeAddress token caller _ = False"
+
+definition transferAmount where
+  "transferAmount bridgeAddress token caller steps = 
+      sum_list (map TRANSFER_amount (filter (isTransfer bridgeAddress token caller) steps))" 
 
 end
 
@@ -675,7 +698,7 @@ text \<open>The total amount of minted tokens is the difference between claimed 
    contractsInit   \<rightarrow>*    contracts 
                            \<not> dead
 *)
-theorem totalMintedBridgeNotDead:
+theorem totalMintedBridgeNotDead':
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   shows "totalMinted contractsI bridgeAddress token + 
          burnedTokenAmount bridgeAddress token stepsInit = 
@@ -1063,6 +1086,15 @@ next
     qed
   qed
 qed
+
+theorem totalMintedBridgeNotDead:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "totalMinted contractsInit bridgeAddress token = 0"
+  shows "totalMinted contractsI bridgeAddress token + 
+         burnedTokenAmount bridgeAddress token stepsInit =
+         claimedTokenAmount bridgeAddress token stepsInit"
+  using assms totalMintedBridgeNotDead' 
+  by presburger
 
 end
 
@@ -2078,7 +2110,7 @@ lemma tokenClaimsTransfersBurnsBalanceClaimedBurnedTokenAmount:
   using tokenClaimsTransfersBurnsBalanceAccountTotalBalance[OF reachableFromInitI]
         totalMintedBridgeNotDead
   using assms
-  by (metis add_cancel_right_left)
+  by metis
 
 end
 
@@ -2167,7 +2199,7 @@ next
 qed
 
 
-lemma nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeDead:
+lemma nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeNotDead:
   assumes "reachableFrom contractsInit contractsI stepsInit"
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
   shows "nonWithdrawnTokenClaimsTransfersBurnsBalances tokenDepositAddress bridgeAddress token stepsBefore stepsInit = 
@@ -2223,13 +2255,16 @@ lemma nonWithdrawnClaimedBeforeDeathAmountConsWithdraw[simp]:
   unfolding nonWithdrawnNonBurnedClaimedBeforeDeathAmount_def
   by auto
 
+definition nonBurnedClaimedAmount where
+  "nonBurnedClaimedAmount bridgeAddress token steps = totalBalance (tokenClaimsTransfersBurnsBalances bridgeAddress token steps)"
+
 lemma nonWithdrawnClaimedBeforeDeathAmountBridgeNotDead:
   assumes "reachableFrom contractsInit contractsI (steps @ stepsBefore)"
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
   shows "nonWithdrawnNonBurnedClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore) =
-         totalBalance (tokenClaimsTransfersBurnsBalances bridgeAddress token stepsBefore)"
-  unfolding nonWithdrawnNonBurnedClaimedBeforeDeathAmount_def
-  using nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeDead[OF assms]
+         nonBurnedClaimedAmount bridgeAddress token stepsBefore"
+  unfolding nonWithdrawnNonBurnedClaimedBeforeDeathAmount_def nonBurnedClaimedAmount_def
+  using nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeNotDead[OF assms]
   by simp
 
 end
@@ -2237,13 +2272,13 @@ end
 context InitFirstUpdate
 begin
 
-theorem nonWithdrawnNotBurnedClaimedBeforeDeathAmountNotDead:
+theorem claimedBeforeDeathAmountBridgeNotDead:
   assumes "stepsInit = steps @ stepsBefore"
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
   assumes "finiteBalances contractsInit (mintedTokenB contractsInit bridgeAddress token)"
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
-  shows "nonWithdrawnNonBurnedClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore) +
+  shows "nonBurnedClaimedAmount bridgeAddress token stepsBefore +
          burnedTokenAmount bridgeAddress token stepsBefore =
          claimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore (steps @ stepsBefore)"
 proof-
@@ -2271,6 +2306,7 @@ proof-
     using claimedBeforeDeathTokenDepositsAmountClaimedTokenDepositsAmount[OF assms(1)]
     using nonWithdrawnClaimedBeforeDeathAmountBridgeNotDead
     using assms reachableFromInitI
+    using nonBurnedClaimedAmount_def
     by presburger
 qed
 
@@ -2301,11 +2337,11 @@ proof (induction contractsDead contractsBD stepsBD rule: reachableFrom.induct)
 
   have *: "?W [] + ?N [] + ?B = ?C []"
     using withdrawnTokenAmountBridgeNotDead[OF InitDead'.reachableFromInitI BD.notBridgeDead', of token]
-    using IFUDead'.nonWithdrawnNotBurnedClaimedBeforeDeathAmountNotDead[where steps="stepsNoUpdate @ [UPDATE_step]" and stepsBefore=stepsInit and token=token]
+    using IFUDead'.claimedBeforeDeathAmountBridgeNotDead[where steps="stepsNoUpdate @ [UPDATE_step]" and stepsBefore=stepsInit and token=token]
     using notBridgeDead'
-    using reachableFrom_base.prems
+    using reachableFrom_base.prems LVSDead'.reachableFromInitLVS nonWithdrawnClaimedBeforeDeathAmountBridgeNotDead properTokenFiniteBalancesMinted
     unfolding BD.stepsBeforeDeath_def
-    by simp
+    by (metis  LVSDead'.stepsAllLVS_def add_cancel_right_left append.assoc append_Nil)
 
   show ?case
   proof (cases stepDeath)
@@ -2370,7 +2406,7 @@ proof (induction contractsDead contractsBD stepsBD rule: reachableFrom.induct)
         by blast
       then have **: "amount' \<le> balanceOf (nonWithdrawnTokenClaimsTransfersBurnsBalances tokenDepositAddress bridgeAddress token stepsInit
           ((stepsNoUpdate @ [UPDATE_step]) @ stepsInit)) caller'"
-        using nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeDead
+        using nonWithdrawnTokenClaimsTransfersBurnsBalanceBridgeNotDead
         by (metis InitDead'.reachableFromInitI append.assoc le_refl notBridgeDead' stepsBeforeDeath_def)
       show ?thesis
         using nonWithdrawnClaimedBeforeDeathAmountConsWithdraw[OF **]
@@ -3009,9 +3045,10 @@ begin
 
 lemma releasedTokenAmountInvariantBeforeDeath:
   assumes "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
-  shows "releasedTokenAmount tokenDepositAddress token (stepsNoUpdate @ [UPDATE_step] @ stepsInit)  + 
-         nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit (stepsNoUpdate @ [UPDATE_step] @ stepsInit)  = 
+  shows "releasedTokenAmount tokenDepositAddress token stepsAllLU  + 
+         nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU  = 
          burnedTokenAmount bridgeAddress token stepsInit"
+  unfolding stepsAllLU_def
   using reachableFromLastUpdateLU assms InitFirstUpdateLastUpdate_axioms 
 proof (induction contractsLastUpdate contractsLU stepsNoUpdate rule: reachableFrom.induct)
   case (reachableFrom_base contractsLU)
@@ -3059,6 +3096,9 @@ next
         using I.noUpdate
         unfolding Let_def
         by auto
+    next
+      show "updatesNonZero (stepsNoUpdate @ [I.UPDATE_step] @ stepsInit) "
+        by (metis I.updatesNonZeroLU append_Cons updatesNonZeroCons(1))
     qed
 
     have *: "releasedTokenAmount tokenDepositAddress token (stepsNoUpdate @ [I.UPDATE_step] @ stepsInit) +
@@ -3085,26 +3125,39 @@ next
   qed
 qed
 
-end
+theorem tokenDepositBalanceBridgeNotDead:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "\<not> bridgeDead contractsLU tokenDepositAddress"
+  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+  shows "tokenDepositBalance contractsLU token tokenDepositAddress =
+         nonClaimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU +
+         nonBurnedClaimedAmount bridgeAddress token stepsInit + 
+         nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
+proof-
+  have *: "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
+    using assms(2) reachableFromBridgeDead reachableFromLastUpdate'LU by blast
 
-context HashProofVerifier
-begin
-
-lemma reachableFromNoUpdateLastValidState:
-  assumes "reachableFrom contracts contracts' steps"
-  assumes "\<nexists> stateRoot. UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot \<in> set steps"
-  shows "lastValidStateTD contracts' tokenDepositAddress = lastValidStateTD contracts tokenDepositAddress"
-  using assms
-proof (induction contracts contracts' steps rule: reachableFrom.induct)
-  case (reachableFrom_base contracts)
-  then show ?case
+  have "tokenDepositBalance contractsLU token tokenDepositAddress + 
+        releasedTokenAmount tokenDepositAddress token stepsAllLU = 
+        depositedTokenAmount tokenDepositAddress token stepsAllLU"
+    using IFLU.tokenDepositBalanceInvariant[OF assms(1)]
+    using canceledTokenAmountBridgeNotDead[OF reachableFromInitLU assms(2), of token]
+    using withdrawnTokenAmountBridgeNotDead[OF reachableFromInitLU assms(2), of token]
     by simp
-next
-  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
-  show ?case
-    using noUpdateGetLastValidStateTD reachableFrom_step reachableFromDepositStateOracle
-    by (metis list.set_intros(1) list.set_intros(2))
+  moreover
+  have "nonBurnedClaimedAmount bridgeAddress token stepsInit + burnedTokenAmount bridgeAddress token stepsInit =
+        claimedBeforeDeathTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
+    using IFLU.claimedBeforeDeathAmountBridgeNotDead[of "stepsNoUpdate @ [UPDATE_step]" stepsInit token]
+    using assms
+    unfolding stepsAllLU_def
+    by auto
+  ultimately
+  show ?thesis
+    using releasedTokenAmountInvariantBeforeDeath[OF *, of token]
+    using depositTokenAmountEqualsClaimedPlusNonClaimed[of tokenDepositAddress token stepsAllLU bridgeAddress stepsInit]
+    by simp
 qed
+
 
 end
 
@@ -3152,7 +3205,6 @@ qed
 
 end
 
-
 context BridgeDeadInitFirstUpdate
 begin
 
@@ -3186,10 +3238,14 @@ proof (induction contractsDead contractsBD stepsBD rule: reachableFrom.induct)
       show "let stateOracleAddress = stateOracleAddressB contractsLastUpdate bridgeAddress
              in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set (stepDeath # stepsNoUpdate)"
         by (metis noUpdate set_ConsD stepDeathNoUpdate)
+    next
+      show "updatesNonZero ((stepDeath # stepsNoUpdate) @ [UPDATE_step] @ stepsInit)"
+        by (metis append.left_neutral append_Cons stepsAllBD_def updatesNonZeroAppend(2) updatesNonZeroInit)
     qed
 
     show ?thesis
       using I.releasedTokenAmountInvariantBeforeDeath notBridgeDeadContractsLastUpdate' 
+      unfolding I.stepsAllLU_def
       by auto
   qed
 next

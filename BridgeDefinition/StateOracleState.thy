@@ -111,6 +111,13 @@ lemma callUpdateLastValidStateTD [simp]:
   using callLastState_def callUpdateITokenDeposit callUpdateOtherAddress lastValidState_def 
   by presburger
 
+lemma callUpdateBridgeNotDeadLastValidState:
+  assumes "callUpdate contracts (stateOracleAddressTD contracts address) block blockNum stateRoot = (Success, contracts')"
+  assumes "\<not> bridgeDead contracts address"
+  shows "snd (lastValidStateTD contracts' address) = stateRoot"
+  using assms
+  by (metis callLastState callLastStateI callUpdateITokenDeposit callUpdateLastState callUpdateStateOracleState(2) lastValidState_def surjective_pairing)
+
 lemma callUpdateFiniteBalances:
   assumes "finiteBalances contracts token'"
   assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
@@ -118,6 +125,8 @@ lemma callUpdateFiniteBalances:
   using assms
   unfolding callUpdate_def update_def
   by (auto simp add: Let_def finiteBalances_def split: option.splits prod.splits if_split_asm)
+
+
 
 
 end

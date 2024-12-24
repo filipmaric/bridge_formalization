@@ -18,8 +18,7 @@ begin
   properToken
 *)
 
-text \<open>After a successful deposit and a state update, 
-      if a bridge is still alive a claim can be made \<close>
+text \<open>After a successful deposit and a state update (while the bridge is alive), a claim can be made \<close>
 theorem claimPossibleAfterDepositAndUpdate:
   \<comment> \<open>contracts are setup properly in the initial state, for the given token\<close>
   assumes "properSetup contracts tokenDepositAddress bridgeAddress"
@@ -35,7 +34,7 @@ theorem claimPossibleAfterDepositAndUpdate:
   \<comment> \<open>there was no previous claim\<close>
   assumes "getClaim (the (bridgeState contractsLU bridgeAddress)) ID = False"
 
-  \<comment> \<open>The same person who made the deposit can make the claim\<close>
+  \<comment> \<open>The user who made the deposit can make the claim\<close>
   assumes "sender msg' = sender msg"
 
   \<comment> \<open>A claim can be made with the state root and the proof obtained from the state that
@@ -67,6 +66,151 @@ proof-
   then show ?thesis 
     unfolding Let_def proof_def
     by (metis eq_fst_iff)
+qed
+
+end
+
+
+context HashProofVerifier
+begin
+
+text \<open>Burn can always be made provided a fresh ID and enough tokens on the bridge\<close>
+lemma burnPossible:
+  assumes "properSetup contracts tokenDepositAddress bridgeAddress"
+  assumes "properToken contracts tokenDepositAddress bridgeAddress token"
+  assumes "0 < amount \<and> amount \<le> accountBalance contracts (mintedTokenB contracts bridgeAddress token) caller"
+  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+  shows "fst (callWithdraw contracts bridgeAddress (message caller 0) ID token amount) = Success"
+proof (rule callWithdrawI)
+  show "bridgeState contracts bridgeAddress \<noteq> None"
+       "tokenPairsState contracts (tokenPairsAddressB contracts bridgeAddress) \<noteq> None"
+       "stateOracleState contracts (stateOracleAddressB contracts bridgeAddress) \<noteq> None"
+       "proofVerifierState contracts (proofVerifierAddressB contracts bridgeAddress) \<noteq> None"
+    by (meson assms(1) properSetup_def)+
+next
+  show "mintedTokenB contracts bridgeAddress token \<noteq> 0"
+       "ERC20state contracts (mintedTokenB contracts bridgeAddress token) \<noteq> None"
+    by (meson assms(2) properToken_def)+
+next
+  show "amount \<le> accountBalance contracts (mintedTokenB contracts bridgeAddress token) (sender (message caller 0))"
+       "0 < amount"
+    using assms(3)
+    by simp_all
+next
+  show "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+    by fact
+qed
+
+end
+
+context InitFirstUpdateLastUpdate
+begin
+
+text \<open>After a successful burn and a state update (while the bridge is alive), a release can be made\<close>
+theorem releasePossibleAfterBurnAndUpdateBridgeNotDead:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+
+  \<comment> \<open>A burn is successfully made\<close>
+  assumes "BURN bridgeAddress caller ID token amount \<in> set stepsInit"
+  \<comment> \<open>the bridge is not dead in the reached state\<close>
+  assumes "\<not> bridgeDead  contractsLU tokenDepositAddress"
+  \<comment> \<open>there was no previous release\<close>
+  assumes "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = False"
+
+  \<comment> \<open>The user who burned the tokens can release them\<close>
+  assumes "sender msg' = caller"
+  assumes "caller \<noteq> tokenDepositAddress"
+
+  \<comment> \<open>A release can be made with the state root and the proof obtained from the state that
+      was used for the last update\<close>
+  shows "let proof = generateBurnProof contractsLastUpdate' ID
+          in fst (callRelease contractsLU tokenDepositAddress msg' ID token amount proof) = Success"
+  unfolding Let_def
+proof (rule callReleaseI)
+  show "tokenDepositState contractsLU tokenDepositAddress \<noteq> None"
+       "stateOracleState contractsLU (stateOracleAddressTD contractsLU tokenDepositAddress) \<noteq> None"
+       "proofVerifierState contractsLU (proofVerifierAddressTD contractsLU tokenDepositAddress) \<noteq> None"
+    by (metis properSetupLU properSetup_def)+
+next
+  show "ERC20state contractsLU token \<noteq> None"
+    using IFLU.ERC20stateINonNone assms(1) by blast
+next
+  let ?BURN_step = "BURN bridgeAddress caller ID token amount"
+  have "?BURN_step \<in> set (nonReleasedTokenBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllLU)"
+  proof-
+    have "?BURN_step \<in> set (tokenBurns bridgeAddress token stepsInit)"
+      unfolding nonReleasedTokenBurns_def
+      using assms(3)
+      by (simp add: tokenBurns_def)
+    moreover
+    have "\<not> isReleasedID tokenDepositAddress token ID stepsAllLU"
+    proof (rule ccontr)
+      assume "\<not> ?thesis"
+      then obtain caller' amount' proof' where "RELEASE tokenDepositAddress caller' ID token amount' proof' \<in> set stepsAllLU"
+        unfolding isReleasedID_def
+        by auto
+      then have "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = True"
+        using reachableFromInitLU reachableFromReleaseSetsFlag by blast
+      then show False
+        using assms
+        by blast
+    qed
+    ultimately
+    show ?thesis
+      unfolding nonReleasedTokenBurns_def
+      by simp
+  qed
+  
+  then have "amount \<le> nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
+    unfolding nonReleasedTokenBurnsAmount_def
+    by (simp add: sum_list_map_remove1)
+  then show "amount \<le> accountBalance contractsLU token tokenDepositAddress"
+    using tokenDepositBalanceBridgeNotDead[OF assms(1) assms(4) assms(2)]
+    by simp
+next
+  show "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = False"
+    by fact
+next
+  show "tokenDepositAddress \<noteq> sender msg'"
+    using assms
+    by blast
+next
+  have "verifyBurnProof () (bridgeAddressTD contractsLU tokenDepositAddress) ID (hash3 (sender msg') token amount)
+     (snd (lastValidStateTD contractsLU tokenDepositAddress)) (generateBurnProof contractsLastUpdate' ID) = True" (is "?P = True")
+  proof (rule verifyBurnProofI)
+    show "generateBurnProof contractsLastUpdate' ID = generateBurnProof contractsLastUpdate' ID"
+      by simp
+  next
+    have "bridgeState contractsLastUpdate' (bridgeAddressTD contractsLU tokenDepositAddress) \<noteq> None"
+      by (metis bridgeAddressLU properSetupUpdate' properSetup_def)
+    then show "bridgeState contractsLastUpdate' (bridgeAddressTD contractsLU tokenDepositAddress)  = 
+               Some (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsLU tokenDepositAddress)))"
+      by simp
+  next
+    have "getWithdrawal (the (bridgeState contractsLastUpdate' bridgeAddress)) ID =
+          hash3 caller token amount"
+      using reachableFromBurnSetsFlag[OF reachableFromInitI \<open>BURN bridgeAddress caller ID token amount \<in> set stepsInit\<close>]
+      by blast
+    then show "getWithdrawal (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsLU tokenDepositAddress))) ID =
+          hash3 (sender msg') token amount"
+      using \<open>sender msg' = caller\<close> bridgeAddressLU by blast
+  next
+    have "generateStateRoot contractsLastUpdate' = stateRoot"
+      by simp
+    moreover
+    have "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
+      by (metis assms(4) reachableFromDeadState reachableFromLastUpdate'LU)
+    then have "snd (lastValidStateTD contractsLastUpdate tokenDepositAddress) = stateRoot"
+      using callUpdateBridgeNotDeadLastValidState properSetupUpdate' 
+      by (smt (verit, ccfv_SIG) properSetup_def update)
+    ultimately
+    show "generateStateRoot contractsLastUpdate' = snd (lastValidStateTD contractsLU tokenDepositAddress)"
+      using \<open>\<not> bridgeDead contractsLastUpdate' tokenDepositAddress\<close>
+      by (metis LastUpdateBridgeNotDead.intro LastUpdateBridgeNotDead.lastValidStateLU LastUpdateBridgeNotDead_axioms.intro LastUpdate_axioms)
+  qed
+  then show "?P"
+    by simp
 qed
 
 end
@@ -114,6 +258,106 @@ end
 
 context BridgeDeadInitFirstUpdate 
 begin
+
+text \<open>After a successful burn and a state update (while the bridge is alive), a release can be made even if the bridge is dead\<close>
+theorem releasePossibleAfterBurnAndUpdateBridgeNotDead:
+  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+
+  \<comment> \<open>A burn is successfully made\<close>
+  assumes "BURN bridgeAddress caller ID token amount \<in> set stepsInit"
+  \<comment> \<open>there was no previous release\<close>
+  assumes "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = False"
+
+  \<comment> \<open>The user who burned the tokens can release them\<close>
+  assumes "sender msg' = caller"
+  assumes "caller \<noteq> tokenDepositAddress"
+
+  \<comment> \<open>A release can be made with the state root and the proof obtained from the state that
+      was used for the last update\<close>
+  shows "let proof = generateBurnProof contractsLastUpdate' ID
+          in fst (callRelease contractsBD tokenDepositAddress msg' ID token amount proof) = Success"
+  unfolding Let_def
+proof (rule callReleaseI)
+  show "tokenDepositState contractsBD tokenDepositAddress \<noteq> None"
+       "stateOracleState contractsBD (stateOracleAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+       "proofVerifierState contractsBD (proofVerifierAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+    using LVSBD.InitLVS.tokenDepositStateINotNone LVSBD.InitLVS.stateOracleAddressTDI LVSBD.InitLVS.stateOracleStateINotNone LVSBD.InitLVS.proofVerifierStateNotNone
+    by presburger+
+next
+  show "ERC20state contractsBD token \<noteq> None"
+    using LVSBD.InitLVS.ERC20stateINonNone assms(1) by blast
+next
+  let ?BURN_step = "BURN bridgeAddress caller ID token amount"
+  have "?BURN_step \<in> set (nonReleasedTokenBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
+  proof-
+    have "?BURN_step \<in> set (tokenBurns bridgeAddress token stepsInit)"
+      unfolding nonReleasedTokenBurns_def
+      using assms(3)
+      by (simp add: tokenBurns_def)
+    moreover
+    have "\<not> isReleasedID tokenDepositAddress token ID stepsAllBD"
+    proof (rule ccontr)
+      assume "\<not> ?thesis"
+      then obtain caller' amount' proof' where "RELEASE tokenDepositAddress caller' ID token amount' proof' \<in> set stepsAllBD"
+        unfolding isReleasedID_def
+        by auto
+      then have "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = True"
+        using reachableFromReleaseSetsFlag InitBD.reachableFromInitI 
+        by blast
+      then show False
+        using assms
+        by blast
+    qed
+    ultimately
+    show ?thesis
+      unfolding nonReleasedTokenBurns_def
+      by simp
+  qed
+  
+  then have "amount \<le> nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+    unfolding nonReleasedTokenBurnsAmount_def
+    by (simp add: sum_list_map_remove1)
+  then show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
+    using tokenDepositBalance
+    using assms(1) assms(2) le_add2
+    by presburger
+next
+  show "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = False"
+    by fact
+next
+  show "tokenDepositAddress \<noteq> sender msg'"
+    using assms
+    by blast
+next
+  have "verifyBurnProof () (bridgeAddressTD contractsBD tokenDepositAddress) ID (hash3 (sender msg') token amount)
+     (snd (lastValidStateTD contractsBD tokenDepositAddress)) (generateBurnProof contractsLastUpdate' ID) = True" (is "?P = True")
+  proof (rule verifyBurnProofI)
+    show "generateBurnProof contractsLastUpdate' ID = generateBurnProof contractsLastUpdate' ID"
+      by simp
+  next
+    have "bridgeState contractsLastUpdate' (bridgeAddressTD contractsBD tokenDepositAddress) \<noteq> None"
+      using LVSBD.InitLVS.bridgeBridgeAddress bridgeStateINotNone by blast
+    then show "bridgeState contractsLastUpdate' (bridgeAddressTD contractsBD tokenDepositAddress)  = 
+               Some (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsBD tokenDepositAddress)))"
+      by simp
+  next
+    have "getWithdrawal (the (bridgeState contractsLastUpdate' bridgeAddress)) ID =
+          hash3 caller token amount"
+      using reachableFromBurnSetsFlag[OF reachableFromInitI \<open>BURN bridgeAddress caller ID token amount \<in> set stepsInit\<close>]
+      by blast
+    then show "getWithdrawal (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsBD tokenDepositAddress))) ID =
+          hash3 (sender msg') token amount"
+      using \<open>sender msg' = caller\<close> 
+      using LVSBD.InitLVS.bridgeBridgeAddress by blast
+  next
+    show "generateStateRoot contractsLastUpdate' = snd (lastValidStateTD contractsBD tokenDepositAddress)"
+      by (simp add: LVSBD.getLastValidStateLVS)
+  qed
+  then show "?P"
+    by simp
+qed
+
 
 theorem cancelPossible:
   \<comment> \<open>Tokens are properly initialized\<close>
@@ -348,4 +592,6 @@ proof-
 qed
 
 end
+
+
 end

@@ -158,6 +158,38 @@ next
   qed auto
 qed
 
+lemma reachableFromNoUpdateLastValidState:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<nexists> stateRoot. UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot \<in> set steps"
+  shows "lastValidStateTD contracts' tokenDepositAddress = lastValidStateTD contracts tokenDepositAddress"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  show ?case
+    using noUpdateGetLastValidStateTD reachableFrom_step reachableFromDepositStateOracle
+    by (metis list.set_intros(1) list.set_intros(2))
+qed
+
+lemma noUpdateNotBridgeDead:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<not> bridgeDead contracts tokenDepositAddress" "lastStateTD contracts tokenDepositAddress = 0"
+  assumes "\<nexists> stateRoot. UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot \<in> set steps"
+  shows "\<not> bridgeDead contracts' tokenDepositAddress"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+    by (metis (no_types, lifting) BridgeDiesDeadState reachableFromDepositStateOracle list.set_intros(2) noUpdateLastState)
+qed
+
 
 text \<open>If state oracle last state has changed, it must have been due to an update step.
       One of those updates must be the last update applied.\<close>

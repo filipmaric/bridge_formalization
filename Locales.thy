@@ -375,7 +375,21 @@ lemma getLastStateBContractsUNonZero:
 end
 
 (* ------------------------------------------------------------------------------------ *)
-locale InitFirstUpdateLastUpdate = InitFirstUpdate where contractsI=contractsLastUpdate' + LastUpdate
+locale InitFirstUpdateLastUpdate = InitFirstUpdate where contractsI=contractsLastUpdate' + LastUpdate +
+  assumes updatesNonZeroLU: "updatesNonZero (stepsNoUpdate @ [UPDATE_step] @ stepsInit)"
+begin
+
+definition stepsAllLU where
+  "stepsAllLU = stepsNoUpdate @ [UPDATE_step] @ stepsInit"
+
+lemma reachableFromInitLU [simp]:
+  shows "reachableFrom contractsInit contractsLU stepsAllLU"
+  using reachableFromInitI reachableFromLastUpdate'LU reachableFromTrans stepsAllLU_def by fastforce
+
+end
+
+sublocale InitFirstUpdateLastUpdate \<subseteq> IFLU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
+  by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stepsAllLU_def updatesNonZeroLU)
 
 (* ------------------------------------------------------------------------------------ *)
 
