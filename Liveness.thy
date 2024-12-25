@@ -137,12 +137,12 @@ next
     using IFLU.ERC20stateINonNone assms(1) by blast
 next
   let ?BURN_step = "BURN bridgeAddress caller ID token amount"
-  have "?BURN_step \<in> set (nonReleasedTokenBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllLU)"
+  have "?BURN_step \<in> set (nonReleasedBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllLU)"
   proof-
-    have "?BURN_step \<in> set (tokenBurns bridgeAddress token stepsInit)"
-      unfolding nonReleasedTokenBurns_def
+    have "?BURN_step \<in> set (burns bridgeAddress token stepsInit)"
+      unfolding nonReleasedBurns_def
       using assms(3)
-      by (simp add: tokenBurns_def)
+      by (simp add: burns_def)
     moreover
     have "\<not> isReleasedID tokenDepositAddress token ID stepsAllLU"
     proof (rule ccontr)
@@ -158,12 +158,12 @@ next
     qed
     ultimately
     show ?thesis
-      unfolding nonReleasedTokenBurns_def
+      unfolding nonReleasedBurns_def
       by simp
   qed
   
-  then have "amount \<le> nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
-    unfolding nonReleasedTokenBurnsAmount_def
+  then have "amount \<le> nonReleasedBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
+    unfolding nonReleasedBurnsAmount_def
     by (simp add: sum_list_map_remove1)
   then show "amount \<le> accountBalance contractsLU token tokenDepositAddress"
     using tokenDepositBalanceBridgeNotDead[OF assms(1) assms(4) assms(2)]
@@ -289,12 +289,12 @@ next
     using LVSBD.InitLVS.ERC20stateINonNone assms(1) by blast
 next
   let ?BURN_step = "BURN bridgeAddress caller ID token amount"
-  have "?BURN_step \<in> set (nonReleasedTokenBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
+  have "?BURN_step \<in> set (nonReleasedBurns tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
   proof-
-    have "?BURN_step \<in> set (tokenBurns bridgeAddress token stepsInit)"
-      unfolding nonReleasedTokenBurns_def
+    have "?BURN_step \<in> set (burns bridgeAddress token stepsInit)"
+      unfolding nonReleasedBurns_def
       using assms(3)
-      by (simp add: tokenBurns_def)
+      by (simp add: burns_def)
     moreover
     have "\<not> isReleasedID tokenDepositAddress token ID stepsAllBD"
     proof (rule ccontr)
@@ -311,12 +311,12 @@ next
     qed
     ultimately
     show ?thesis
-      unfolding nonReleasedTokenBurns_def
+      unfolding nonReleasedBurns_def
       by simp
   qed
   
-  then have "amount \<le> nonReleasedTokenBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
-    unfolding nonReleasedTokenBurnsAmount_def
+  then have "amount \<le> nonReleasedBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+    unfolding nonReleasedBurnsAmount_def
     by (simp add: sum_list_map_remove1)
   then show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
     using tokenDepositBalance
@@ -394,7 +394,7 @@ proof-
     next
       show "sender (message caller 0) \<noteq> tokenDepositAddress"
         using assms
-        by simp
+        using senderMessage by presburger
     next
       show "fst (snd (getDeadStatus contractsBD
                 (the (tokenDepositState contractsBD tokenDepositAddress)) block)) = True"
@@ -441,13 +441,13 @@ proof-
     next
       show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
       proof-
-        have "amount \<le> nonClaimedBeforeDeathNonCanceledTokenDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
-            unfolding nonClaimedBeforeDeathNonCanceledTokenDepositsAmount_def
+        have "amount \<le> nonClaimedBeforeNonCanceledDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+            unfolding nonClaimedBeforeNonCanceledDepositsAmount_def
         proof (rule member_le_sum_list)
-          have "DEPOSIT tokenDepositAddress caller ID token amount \<in> set (nonClaimedBeforeDeathNonCanceledTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
+          have "DEPOSIT tokenDepositAddress caller ID token amount \<in> set (nonClaimedBeforeNonCanceledDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD)"
             using assms
-            by (simp add: nonClaimedBeforeDeathNonCanceledTokenDeposits_def tokenDeposits_def)
-          then show "amount \<in> set (map DEPOSIT_amount (nonClaimedBeforeDeathNonCanceledTokenDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD))"
+            by (simp add: nonClaimedBeforeNonCanceledDeposits_def deposits_def)
+          then show "amount \<in> set (map DEPOSIT_amount (nonClaimedBeforeNonCanceledDeposits tokenDepositAddress bridgeAddress token stepsInit stepsAllBD))"
             by (metis HashProofVerifier.DEPOSIT_amount.simps HashProofVerifier_axioms image_eqI image_set)
         qed
         then show ?thesis
@@ -525,13 +525,13 @@ proof-
   next
     show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
     proof-
-      have "amount \<le> nonWithdrawnNonBurnedClaimedBeforeDeathAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+      have "amount \<le> nonWithdrawnNonBurnedClaimedBeforeAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
       proof-
-        let ?N = "nonWithdrawnTokenClaimsTransfersBurnsBalances tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
+        let ?N = "nonWithdrawnMintedUserBalances tokenDepositAddress bridgeAddress token stepsInit stepsAllBD"
         have "balanceOf ?N (sender msg) = amount"
         proof-
-          have "balanceOf (tokenClaimsTransfersBurnsBalances bridgeAddress token stepsInit) (sender msg) = amount"
-          proof (subst tokenClaimsTransfersBurnsBalanceAccountBalance)
+          have "balanceOf (mintedUserBalances bridgeAddress token stepsInit) (sender msg) = amount"
+          proof (subst mintedUserBalancesAccountBalance)
             show "reachableFrom contractsInit contractsLastUpdate' stepsInit"
               by simp
           next
@@ -548,7 +548,7 @@ proof-
             using \<open>getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False\<close>
             using InitBD.reachableFromInitI reachableFromGetTokenWithdrawnNoWithdraw by blast
           ultimately show ?thesis
-            using nonWithdrawnTokenClaimsTransfersBurnsBalanceNoWithdraw
+            using nonWithdrawnMintedUserBalancesNoWithdraw
             by blast
         qed
         moreover 
@@ -556,8 +556,8 @@ proof-
           by simp
         ultimately
         show ?thesis
-          unfolding nonWithdrawnNonBurnedClaimedBeforeDeathAmount_def
-          by (meson order_refl totalBalance_removeFromBalance(1))
+          unfolding nonWithdrawnNonBurnedClaimedBeforeAmount_def
+          by (metis order_refl totalBalance_removeFromBalance(1))
       qed
       then show ?thesis
         using tokenDepositBalance assms
@@ -592,6 +592,7 @@ proof-
 qed
 
 end
+
 
 
 end
