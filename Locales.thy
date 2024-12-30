@@ -149,6 +149,8 @@ locale Init' = StrongHashProofVerifier +
   \<comment> \<open>All relevant data is still empty\<close>
   assumes depositsEmpty [simp]: 
     "\<And> ID. getDeposit (the (tokenDepositState contractsInit tokenDepositAddress)) ID = 0"
+  assumes tokenWithdrawnEmpty [simp]: 
+    "\<And> H. getTokenWithdrawn (the (tokenDepositState contractsInit tokenDepositAddress)) H = False"
   assumes claimsEmpty [simp]:
     "\<And> ID. getClaim (the (bridgeState contractsInit bridgeAddress)) ID = False"
   assumes withdrawalsEmpty [simp]: 
@@ -390,6 +392,9 @@ end
 
 sublocale InitFirstUpdateLastUpdate \<subseteq> IFLU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
   by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stepsAllLU_def updatesNonZeroLU)
+
+sublocale InitFirstUpdateLastUpdate \<subseteq> IFLastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
+  by (smt (verit) Cons_eq_append_conv Init'_axioms Init.intro InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro firstUpdate last_ConsR list.distinct(1) reachableFrom.cases reachableFromInitI reachableFromTrans reachableFromUpdate'Update updatesNonZeroAppend(2) updatesNonZeroLU)
 
 (* ------------------------------------------------------------------------------------ *)
 

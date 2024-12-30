@@ -5,8 +5,6 @@ begin
 context HashProofVerifier
 begin
 
-
-
 \<comment> \<open>Once set tokenWithdrawn flag cannot be unset\<close>
 lemma reachableFromGetTokenWithdrawn:
   assumes "reachableFrom contracts contracts' steps"
@@ -78,6 +76,77 @@ next
     qed
   qed
 qed
+
+end
+
+context HashProofVerifier
+begin
+
+(* FIXME: move *)
+lemma callWithdrawWhileDeadGetTokenWithdrawnOtherHash:
+  assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
+  assumes "h \<noteq> hash2 (sender msg) token"
+  shows "getTokenWithdrawn (the (tokenDepositState contracts' address)) h = 
+         getTokenWithdrawn (the (tokenDepositState contracts address)) h"
+  using assms
+  unfolding callWithdrawWhileDead_def withdrawWhileDead_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+end
+
+context StrongHashProofVerifier
+begin
+
+lemma reachableFromGetTokenWithdrawnNoWithdrawNoChange:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
+  shows "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = 
+         getTokenWithdrawn (the (tokenDepositState contracts tokenDepositAddress)) (hash2 caller token)"
+  using assms
+proof (induction contracts contracts' steps)
+  case (reachableFrom_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+  proof (cases step)
+    case (WITHDRAW_WD address' caller' token' amount' proof')
+    show ?thesis
+    proof (cases "address' = tokenDepositAddress \<and> token' = token \<and> caller' = caller")
+      case True
+      then have False
+        using WITHDRAW_WD reachableFrom_step.prems
+        by auto
+      then show ?thesis
+        by simp
+    next
+      case False
+      show ?thesis
+      proof (cases "address' = tokenDepositAddress")
+        case False
+        then show ?thesis
+          using callWithdrawWhileDeadOtherAddress WITHDRAW_WD reachableFrom_step
+          by (metis executeStep.simps(8) list.set_intros(2))
+      next
+        case True
+        then have "hash2 caller token \<noteq> hash2 caller' token'"
+          using hash2_inj \<open>\<not> (address' = tokenDepositAddress \<and> token' = token \<and> caller' = caller)\<close>
+          unfolding hash2_inj_def
+          by blast
+        then show ?thesis
+          using True WITHDRAW_WD reachableFrom_step
+          using callWithdrawWhileDeadGetTokenWithdrawnOtherHash
+          by (metis executeStep.simps(8) list.set_intros(2) senderMessage)
+      qed
+    qed
+  qed auto
+qed
+
+end
+
+context HashProofVerifier
+begin
 
 (* ------------------------------------------------------------------------------------ *)
 
@@ -213,6 +282,27 @@ proof-
     using \<open>reachableFrom contracts2 contractsB [DEPOSIT tokenDepositAddress caller' ID token' amount']\<close>
     by (metis executeStep.simps(1)  callDepositNotBridgeDead' reachableFromBridgeDead reachableFromCons')
 qed
+
+
+lemma noCancelBeforeDeposit:
+  assumes CANCEL_in_steps: "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof' \<in> set stepsInit"
+  assumes reachableFromInitI: "reachableFrom contractsInit contractsI stepsInit"
+  assumes reach: "reachableFrom contractsI contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
+  shows "False"
+proof-
+  let ?CANCEL_step = "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof'"
+  let ?DEPOSIT_step = "DEPOSIT tokenDepositAddress caller ID token amount"
+  obtain steps1 steps2 where "stepsInit = steps1 @ [?CANCEL_step] @ steps2"
+    using CANCEL_in_steps
+    using reachableFromInitI reachableFromStepInSteps 
+    by blast
+  then have "reachableFrom contractsInit contractsDeposit ([] @ [?DEPOSIT_step] @ steps1 @ [?CANCEL_step] @ steps2 )"
+    using reach reachableFromInitI reachableFromTrans by fastforce
+  then show False
+    using noCancelBeforeDepositSteps
+    by blast
+qed
+
 
 end
 
@@ -383,6 +473,17 @@ proof-
     by (auto split: option.splits)
 qed
 
+end
+
+context Init
+begin
+
+lemma getTokenWithdrawnNotBridgeDead:
+  assumes "\<not> bridgeDead contractsI tokenDepositAddress"
+  shows "getTokenWithdrawn (the (tokenDepositState contractsI tokenDepositAddress)) (hash2 caller token) = False"
+  using tokenWithdrawnEmpty reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF reachableFromInitI]
+  using assms noWithdrawBeforeBridgeDead reachableFromInitI
+  by blast
 end
 
 end
