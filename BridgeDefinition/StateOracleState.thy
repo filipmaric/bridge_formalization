@@ -126,7 +126,11 @@ lemma callUpdateFiniteBalances:
   unfolding callUpdate_def update_def
   by (auto simp add: Let_def finiteBalances_def split: option.splits prod.splits if_split_asm)
 
-
-
+lemma callUpdateStateRootNonZero:
+  assumes "callUpdate contracts address block blockNum stateRoot = (Success, contracts')"
+  shows "stateRoot \<noteq> 0"
+  using assms
+  unfolding callUpdate_def update_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 end

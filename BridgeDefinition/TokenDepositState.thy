@@ -145,8 +145,7 @@ lemma depositWritesHash:
 
 lemma callDepositWritesHash:
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
-  shows "getDeposit (the (tokenDepositState contracts' address)) ID = 
-         hash3 (sender msg) token amount"
+  shows "getDepositTD contracts' address ID = hash3 (sender msg) token amount"
   using assms depositWritesHash
   unfolding callDeposit_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -155,8 +154,8 @@ text \<open>other deposits enteries are not changed\<close>
 lemma callDepositOtherID [simp]:
   assumes "callDeposit contracts address block msg ID token amount = (Success, contracts')"
   assumes "ID' \<noteq> ID"
-  shows "getDeposit (the (tokenDepositState contracts' address)) ID' =
-         getDeposit (the (tokenDepositState contracts address)) ID'"
+  shows "getDepositTD contracts' address ID' =
+         getDepositTD contracts address ID'"
   using assms
   unfolding callDeposit_def deposit_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -257,7 +256,7 @@ lemma callDepositTokenExists:
 
 text \<open>There can be no double deposit\<close>
 lemma callDepositWrittenHash:
-  assumes "getDeposit (the (tokenDepositState contracts address)) ID \<noteq> 0"
+  assumes "getDepositTD contracts address ID \<noteq> 0"
   shows "fst (callDeposit contracts address block msg ID token amount) \<noteq> Success"
   using assms
   unfolding callDeposit_def deposit_def
@@ -755,7 +754,7 @@ begin
 
 lemma callCancelDepositWhileDeadGetDepositNonzero:
   assumes "callCancelDepositWhileDead contracts address msg block ID token amount proof = (Success, contracts')"
-  shows "getDeposit (the (tokenDepositState contracts address)) ID \<noteq> 0"
+  shows "getDepositTD contracts address ID \<noteq> 0"
   using assms hash3_nonzero[of "sender msg" token amount]
   unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def Let_def
   by (auto split: option.splits prod.splits if_split_asm)
@@ -794,7 +793,7 @@ lemma callCancelDepositWhileDeadI:
   assumes "stateOracleState contracts (stateOracleAddressTD contracts address) \<noteq> None"
   assumes "proofVerifierState contracts (TokenDepositState.proofVerifier (the (tokenDepositState contracts address))) \<noteq> None"
   assumes "ERC20state contracts token \<noteq> None"
-  assumes "getDeposit (the (tokenDepositState contracts address)) ID = hash3 (sender msg) token amount"
+  assumes "getDepositTD contracts address ID = hash3 (sender msg) token amount"
   assumes "fst (snd (getDeadStatus contracts (the (tokenDepositState contracts address)) block)) = True"
   assumes "bridgeDead contracts address \<longrightarrow> deadState (the (tokenDepositState contracts address)) = stateRoot"
   assumes "\<not> bridgeDead contracts address \<longrightarrow> lastState (the (stateOracleState contracts (stateOracleAddressTD contracts address))) = stateRoot"
@@ -919,14 +918,14 @@ lemma callWithdrawWhileDeadOtherToken:
 
 lemma callWithdrawWhileDeadTokenWithdrawn [simp]:
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
-  shows "getTokenWithdrawn (the (tokenDepositState contracts' address)) (hash2 (sender msg) token) = True"
+  shows "getTokenWithdrawnTD contracts' address (hash2 (sender msg) token) = True"
   using assms
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (auto simp add: Let_def lookupBool_def lookup_default_update split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawWhileDeadNotTokenWithdrawn [simp]:
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
-  shows "getTokenWithdrawn (the (tokenDepositState contracts address)) (hash2 (sender msg) token) = False"
+  shows "getTokenWithdrawnTD contracts address (hash2 (sender msg) token) = False"
   using assms
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (auto simp add: Let_def lookupBool_def lookup_default_update split: option.splits prod.splits if_split_asm)
@@ -1042,9 +1041,9 @@ lemma callWithdrawWhileDeadBridgeDead:
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callWithdrawWhileDeadTokenWithdrawn':
-  assumes "getTokenWithdrawn ((the (tokenDepositState contracts address'))) h = True"
+  assumes "getTokenWithdrawnTD contracts address' h = True"
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
-  shows "getTokenWithdrawn ((the (tokenDepositState contracts' address'))) h = True"
+  shows "getTokenWithdrawnTD contracts' address' h = True"
   using assms
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (cases "address = address'", cases "hash2 (sender msg) token = h", auto simp add: Let_def lookupBool_def lookup_default_update' split: option.splits prod.splits if_split_asm)
@@ -1083,7 +1082,7 @@ lemma callWithdrawWhileDeadI:
   assumes "stateOracleState contracts (stateOracleAddressTD contracts tokenDepositAddress) \<noteq> None"
   assumes "proofVerifierState contracts (TokenDepositState.proofVerifier (the (tokenDepositState contracts tokenDepositAddress))) \<noteq> None"
   assumes "fst (snd (getDeadStatus contracts (the (tokenDepositState contracts tokenDepositAddress)) block)) = True"
-  assumes "getTokenWithdrawn (the (tokenDepositState contracts tokenDepositAddress)) (hash2 (sender msg) token) = False"
+  assumes "getTokenWithdrawnTD contracts tokenDepositAddress (hash2 (sender msg) token) = False"
   assumes "tokenDepositAddress \<noteq> sender msg"
   assumes "amount \<le> accountBalance contracts token tokenDepositAddress"
   assumes "mintedTokenTD contracts tokenDepositAddress token \<noteq> 0"
@@ -1128,7 +1127,7 @@ proof-
   show ?thesis
     using \<open>tokenDepositState contracts tokenDepositAddress \<noteq> None\<close>
     using \<open>mintedTokenTD contracts tokenDepositAddress token \<noteq> 0\<close>
-    using \<open>getTokenWithdrawn (the (tokenDepositState contracts tokenDepositAddress)) (hash2 (sender msg) token) = False\<close>
+    using \<open>getTokenWithdrawnTD contracts tokenDepositAddress (hash2 (sender msg) token) = False\<close>
     using \<open>fst (snd (getDeadStatus contracts (the (tokenDepositState contracts tokenDepositAddress)) block)) = True\<close>
     unfolding callWithdrawWhileDead_def withdrawWhileDead_def lastValidState_def
     by (auto simp add: Let_def split: option.splits prod.splits)
@@ -1250,22 +1249,21 @@ lemma callReleaseOtherToken:
 lemma callReleaseOtherID:
   assumes "ID' \<noteq> ID"
   assumes "callRelease contracts address msg ID token amount proof = (Success, contracts')"
-  shows "getRelease (the (tokenDepositState contracts' address)) ID' = 
-         getRelease (the (tokenDepositState contracts address)) ID'"
+  shows "getReleaseTD contracts' address ID' = getReleaseTD contracts address ID'"
   using assms
   unfolding callRelease_def release_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callReleaseRelase [simp]:
   assumes "callRelease contracts address msg ID token amount proof = (Success, contracts')"
-  shows "getRelease (the (tokenDepositState contracts' address)) ID = True"
+  shows "getReleaseTD contracts' address ID = True"
   using assms
   unfolding callRelease_def release_def
   by (auto simp add: Let_def lookupBool_def lookup_default_update split: option.splits prod.splits if_split_asm)
 
 lemma callReleaseNotReleased [simp]:
   assumes "callRelease contracts address msg ID token amount proof = (Success, contracts')"
-  shows "getRelease (the (tokenDepositState contracts address)) ID = False"
+  shows "getReleaseTD contracts address ID = False"
   using assms
   unfolding callRelease_def release_def
   by (auto simp add: Let_def lookupBool_def lookup_default_update split: option.splits prod.splits if_split_asm)
@@ -1371,7 +1369,7 @@ lemma callReleaseI:
   assumes "stateOracleState contracts (stateOracleAddressTD contracts tokenDepositAddress) \<noteq> None"
   assumes "proofVerifierState contracts (TokenDepositState.proofVerifier (the (tokenDepositState contracts tokenDepositAddress))) \<noteq> None"
   assumes "amount \<le> accountBalance contracts token tokenDepositAddress"
-  assumes "getRelease (the (tokenDepositState contracts tokenDepositAddress)) ID = False"
+  assumes "getReleaseTD contracts tokenDepositAddress ID = False"
   assumes "tokenDepositAddress \<noteq> sender msg"
   assumes "verifyBurnProof () (bridgeAddressTD contracts tokenDepositAddress) ID (hash3 (sender msg) token amount) (snd (lastValidStateTD contracts tokenDepositAddress)) proof"
   shows "fst (callRelease contracts tokenDepositAddress msg ID token amount proof) = Success"
@@ -1401,7 +1399,7 @@ proof-
   ultimately
   show ?thesis
     using \<open>tokenDepositState contracts tokenDepositAddress \<noteq> None\<close>
-    using \<open>getRelease (the (tokenDepositState contracts tokenDepositAddress)) ID = False\<close>
+    using \<open>getReleaseTD contracts tokenDepositAddress ID = False\<close>
     unfolding callRelease_def release_def lastValidState_def
     by (auto simp add: Let_def split: option.splits prod.splits)
 qed

@@ -8,10 +8,9 @@ begin
 text \<open>Once written deposit hash can be unset only by a CANCEL_WD step\<close>
 lemma reachableFromGetDepositBridgeNoCancel:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<noteq> 0"
+  assumes "getDepositTD contracts tokenDepositAddress ID \<noteq> 0"
   assumes "\<nexists> caller amount token proof. CANCEL_WD tokenDepositAddress caller ID token amount proof \<in> set steps"
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = 
-         getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID"
+  shows "getDepositTD contracts' tokenDepositAddress ID = getDepositTD contracts tokenDepositAddress ID"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -68,9 +67,8 @@ text \<open>Once written deposit entry cannot be unset while the bridge is alive
 lemma reachableFromGetDepositBridgeNotDead:
   assumes "reachableFrom contracts contracts' steps"
   assumes "\<not> bridgeDead contracts' tokenDepositAddress"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<noteq> 0"
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = 
-         getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID"
+  assumes "getDepositTD contracts tokenDepositAddress ID \<noteq> 0"
+  shows "getDepositTD contracts' tokenDepositAddress ID = getDepositTD contracts tokenDepositAddress ID"
   using assms reachableFromGetDepositBridgeNoCancel reachableFromNotBridgeDeadNoCancel 
   by meson
 
@@ -79,8 +77,8 @@ text \<open>When the bridge is dead, deposit flags that are zero remain zero\<cl
 lemma reachableFromGetDepositBridgeDead:
   assumes "reachableFrom contracts contracts' steps"
   assumes "bridgeDead contracts tokenDepositAddress"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = 0"
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = 0"
+  assumes "getDepositTD contracts tokenDepositAddress ID = 0"
+  shows "getDepositTD contracts' tokenDepositAddress ID = 0"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -113,10 +111,9 @@ qed
 text \<open>Once written deposit entry cannot only remain the same or be unset to zero\<close>
 lemma reachableFromGetDeposit:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<noteq> 0"
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = 
-         getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<or> 
-         getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = 0"
+  assumes "getDepositTD contracts tokenDepositAddress ID \<noteq> 0"
+  shows "getDepositTD contracts' tokenDepositAddress ID = getDepositTD contracts tokenDepositAddress ID \<or>
+         getDepositTD contracts' tokenDepositAddress ID = 0"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -154,8 +151,8 @@ begin
 text \<open>deposit flag can be set only by an appropriate DEPOSIT step\<close>
 lemma getDepositWrittenOnlyByDeposit:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID = 0"
-  assumes "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = hash3 caller token amount"
+  assumes "getDepositTD contracts tokenDepositAddress ID = 0"
+  assumes "getDepositTD contracts' tokenDepositAddress ID = hash3 caller token amount"
   shows "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
 proof (rule ccontr)
   assume *: "\<not> ?thesis"
@@ -187,7 +184,7 @@ proof (rule ccontr)
             by simp
         next
           case False
-          then have "getDeposit (the (tokenDepositState contracts'' tokenDepositAddress)) ID =
+          then have "getDepositTD contracts'' tokenDepositAddress ID =
                      hash3 caller' token' amount'"
             using DEPOSIT reachableFrom_step \<open>\<not> address' \<noteq> tokenDepositAddress\<close> callDepositWritesHash
             by auto
@@ -226,8 +223,8 @@ text \<open>Only a CLAIM step can change the claim flag value\<close>
 lemma reachableFromGetClaimNoClaim:
   assumes "reachableFrom contracts contracts' steps"
   assumes "\<nexists> caller token amount proof. CLAIM bridgeAddress caller ID token amount proof \<in> set steps" 
-  shows "getClaim (the (bridgeState contracts' bridgeAddress)) ID = 
-         getClaim (the (bridgeState contracts bridgeAddress)) ID"
+  shows "getClaimB contracts' bridgeAddress ID = 
+         getClaimB contracts bridgeAddress ID"
   using assms
 proof (induction contracts contracts' steps)
   case (reachableFrom_base contracts)
@@ -253,8 +250,8 @@ qed
 text \<open>Once written claim entry cannot be unset\<close>
 lemma reachableFromGetClaim:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getClaim (the (bridgeState contracts address)) ID = True"
-  shows "getClaim (the (bridgeState contracts' address)) ID = True"
+  assumes "getClaimB contracts address ID = True"
+  shows "getClaimB contracts' address ID = True"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -281,7 +278,7 @@ text \<open>If a claim is executed, then the claims entry is set\<close>
 lemma claimStepSetsClaim:
   assumes "reachableFrom contracts contracts' steps"
   assumes "CLAIM bridgeAddress caller ID token amount proof \<in> set steps"
-  shows "getClaim (the (bridgeState contracts' bridgeAddress)) ID = True"
+  shows "getClaimB contracts' bridgeAddress ID = True"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -316,7 +313,7 @@ theorem noDepositBridgeDead:
 text \<open>No DEPOSIT after the deposits entry is set\<close>
 lemma noDepositAfterGetDepositNonzero:
   assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
-  assumes "getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID \<noteq> 0"
+  assumes "getDepositTD contracts tokenDepositAddress ID \<noteq> 0"
   assumes "reachableFrom contracts contracts' steps"
   shows False
   using assms
@@ -334,10 +331,10 @@ theorem callDepositNoDouble:
   shows "fst (callDeposit contracts'' address block' msg' ID token' amount') \<noteq> Success"
 proof (cases "bridgeDead contracts'' address")
   case False
-  have "getDeposit (the (tokenDepositState contracts' address)) ID = hash3 (sender msg) token amount"
+  have "getDepositTD contracts' address ID = hash3 (sender msg) token amount"
     using callDepositWritesHash[OF assms(1)]
     by simp
-  then have "getDeposit (the (tokenDepositState contracts'' address)) ID \<noteq> 0"
+  then have "getDepositTD contracts'' address ID \<noteq> 0"
     using False reachableFromGetDepositBridgeNotDead hash3_nonzero[of "sender msg" token amount] assms
     by auto
   then show ?thesis
@@ -364,7 +361,7 @@ proof-
   have "getClaim state' ID = True"
     using assms
     by (simp add: callClaimWritesClaim state'_def)
-  then have "getClaim (the (bridgeState contracts'' address)) ID = True"
+  then have "getClaimB contracts'' address ID = True"
     using \<open>reachableFrom contracts' contracts'' steps\<close>
     unfolding state'_def
     using reachableFromGetClaim
@@ -523,7 +520,7 @@ begin
 text \<open>CLAIM succeeds only if the appropriate deposits entry is set\<close>
 theorem callClaimGetDeposit:
   assumes "callClaim contractsLU bridgeAddress msg ID token amount proof = (Success, contractsClaim)"
-  shows "getDeposit (the (tokenDepositState contractsLastUpdate' tokenDepositAddress)) ID = 
+  shows "getDepositTD contractsLastUpdate' tokenDepositAddress ID = 
          hash3 (sender msg) token amount"
 proof-
   have "verifyDepositProof () tokenDepositAddress ID (hash3 (sender msg) token amount) stateRoot proof = True"
@@ -562,7 +559,7 @@ lemma onlyDepositorCanClaim:
 
   shows "sender msg = sender msg'" "token = token'" "amount = amount'"
 proof-
-  have "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
+  have "getDepositTD contractsD' tokenDepositAddress ID = hash3 (sender msg) token amount"
     using callDepositWritesHash deposit
     by simp
 
@@ -630,14 +627,14 @@ proof-
       by simp
   qed
 
-  have "getDeposit (the (tokenDepositState contractsUx tokenDepositAddress)) ID = hash3 (sender msg') token' amount'"
+  have "getDepositTD contractsUx tokenDepositAddress ID = hash3 (sender msg') token' amount'"
     using LastUpdate'.callClaimGetDeposit[OF claim]
     by simp
 
   have "hash3 (sender msg) token amount = hash3 (sender msg') token' amount'"
     using reachableFromGetDeposit
-    using \<open>getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount\<close> 
-    using \<open>getDeposit (the (tokenDepositState contractsUx tokenDepositAddress)) ID = hash3 (sender msg') token' amount'\<close>
+    using \<open>getDepositTD contractsD' tokenDepositAddress ID = hash3 (sender msg) token amount\<close> 
+    using \<open>getDepositTD contractsUx tokenDepositAddress ID = hash3 (sender msg') token' amount'\<close>
     using \<open>callUpdate contractsUx stateOracleAddress blockx blockNumx stateRootx = (Success, contractsU'x)\<close>
     using hash3_nonzero
     using \<open>reachableFrom contractsD' contractsUx steps1x\<close>
@@ -703,7 +700,7 @@ proof-
       by (metis "*"(4) "*"(5) reachableFromBridgeStateOracle reachableFromInitI stateOracleAddress_def)
   qed
 
-  have "getDeposit (the (tokenDepositState contractsU tokenDepositAddress)) ID = hash3 (sender msg) token amount"
+  have "getDepositTD contractsU tokenDepositAddress ID = hash3 (sender msg) token amount"
     using assms LastUpdate'.callClaimGetDeposit
     by (smt (verit, best) reachableFromBridgeStateOracle callUpdateITokenDeposit properSetupReachable stateOracleAddress_def)
   then show ?thesis
@@ -774,7 +771,7 @@ proof-
       using \<open>\<nexists>stateRoot'. UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot' \<in> set steps2'\<close> \<open>callUpdate contracts' (stateOracleAddressB contractsInit bridgeAddress) blockU blockNumU stateRoot = (Success, contracts1)\<close> \<open>reachableFrom contractsInit contracts' steps1'\<close> by auto
   qed
 
-  have getDeposit: "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID = hash3 caller' token' amount'"
+  have getDeposit: "getDepositTD contracts' tokenDepositAddress ID = hash3 caller' token' amount'"
     using LU.callClaimGetDeposit
     by (metis executeStep.simps(2) reach(4) reachableFromSingleton senderMessage)
 
@@ -816,7 +813,7 @@ proof-
   interpret IFU: InitFirstUpdate where
       contractsI=contractsC and stepsInit="steps1' @ [last stepsInit]"
     using bl
-    by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def CC'(1) append.assoc append_butlast_last_id append_is_Nil_conv firstUpdate last_snoc not_Cons_self2 updatesNonZeroAppend(2) updatesNonZeroInit)
+    by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def CC'(1) append.assoc append_butlast_last_id append_is_Nil_conv firstUpdate last_snoc not_Cons_self2 stateRootInitNonZero)
   have "DEPOSIT tokenDepositAddress caller ID token amount \<in> set (steps1' @ [last stepsInit])"
     using IFU.depositBeforeClaim CC'(2)
     by (metis executeStep.simps(2) reachableFromSingleton senderMessage)
@@ -856,15 +853,7 @@ proof-
     by unfold_locales
 
   interpret InitFirstUpdate': InitFirstUpdate where contractsI=c1 and stepsInit=steps2
-  proof
-    show "reachableFrom contractsInit c1 steps2" by fact
-   next
-    show "updatesNonZero steps2"
-      by (metis "*"(4) Cons_eq_append_conv add_cancel_right_right list.size(4) nat.simps(3) updatesNonZeroAppend(2) updatesNonZeroInit)
-  next
-    show "steps2 \<noteq> [] \<and> last steps2 = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-      by (metis "*"(4) CLAIM_step_def Nil_is_append_conv Step.distinct(21) firstUpdate last.simps last_append not_Cons_self)
-  qed
+    by (metis (no_types, lifting) "*"(1) "*"(4) CLAIM_step_def HashProofVerifier.Step.distinct(22) HashProofVerifier_axioms Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_is_Nil_conv firstUpdate last.simps last_append not_Cons_self stateRootInitNonZero)
 
   have "DEPOSIT_step' \<in> set steps2"
     using * InitFirstUpdate'.depositBeforeClaim
@@ -899,17 +888,7 @@ proof-
   obtain contracts where C: "reachableFrom contractsInit contracts ([?claimStep] @ steps1)"
     by (metis assms reachableFromAppend reachableFromInitI)
   interpret IFU: InitFirstUpdate where contractsI=contracts and stepsInit="[?claimStep] @ steps1"
-  proof
-    show "[?claimStep] @ steps1 \<noteq> [] \<and> last ([?claimStep] @ steps1) = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-      using assms firstUpdate by force
-  next
-    show "updatesNonZero ([?claimStep] @ steps1)"
-      using assms updatesNonZeroAppend(2) updatesNonZeroInit by blast
-  next 
-    show "reachableFrom contractsInit contracts ([?claimStep] @ steps1)"
-      by fact
-  qed
-
+    using C Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def assms firstUpdate stateRootInitNonZero by auto
   have "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps1"
     using IFU.depositBeforeClaimSteps
     by auto

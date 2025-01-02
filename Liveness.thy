@@ -32,7 +32,7 @@ theorem claimPossibleAfterDepositAndUpdate:
   assumes "\<not> bridgeDead  contractsLastUpdate' tokenDepositAddress"
 
   \<comment> \<open>there was no previous claim\<close>
-  assumes "getClaim (the (bridgeState contractsLU bridgeAddress)) ID = False"
+  assumes "getClaimB contractsLU bridgeAddress ID = False"
 
   \<comment> \<open>The user who made the deposit can make the claim\<close>
   assumes "sender msg' = sender msg"
@@ -48,7 +48,7 @@ proof-
   have *: "verifyDepositProof () tokenDepositAddress ID (hash3 (sender msg) token amount) stateRoot proof = True"
     unfolding proof_def
   proof (rule verifyDepositProofI)
-    show "getDeposit (the (tokenDepositState contractsLastUpdate' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
+    show "getDepositTD contractsLastUpdate' tokenDepositAddress ID = hash3 (sender msg) token amount"
       using reachableFromGetDepositBridgeNotDead
       using \<open>reachableFrom contractsD contractsLastUpdate' steps\<close> hash3_nonzero assms callDepositWritesHash
       by auto
@@ -79,7 +79,7 @@ lemma burnPossible:
   assumes "properSetup contracts tokenDepositAddress bridgeAddress"
   assumes "properToken contracts tokenDepositAddress bridgeAddress token"
   assumes "0 < amount \<and> amount \<le> accountBalance contracts (mintedTokenB contracts bridgeAddress token) caller"
-  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+  assumes "getWithdrawalB contracts bridgeAddress ID = 0"
   shows "fst (callWithdraw contracts bridgeAddress (message caller 0) ID token amount) = Success"
 proof (rule callWithdrawI)
   show "bridgeState contracts bridgeAddress \<noteq> None"
@@ -97,7 +97,7 @@ next
     using assms(3)
     by simp_all
 next
-  show "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+  show "getWithdrawalB contracts bridgeAddress ID = 0"
     by fact
 qed
 
@@ -116,7 +116,7 @@ theorem releasePossibleAfterBurnAndUpdateBridgeNotDead:
   \<comment> \<open>the bridge is not dead in the reached state\<close>
   assumes "\<not> bridgeDead  contractsLU tokenDepositAddress"
   \<comment> \<open>there was no previous release\<close>
-  assumes "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = False"
+  assumes "getReleaseTD contractsLU tokenDepositAddress ID = False"
 
   \<comment> \<open>The user who burned the tokens can release them\<close>
   assumes "sender msg' = caller"
@@ -150,7 +150,7 @@ next
       then obtain caller' amount' proof' where "RELEASE tokenDepositAddress caller' ID token amount' proof' \<in> set stepsAllLU"
         unfolding isReleasedID_def
         by auto
-      then have "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = True"
+      then have "getReleaseTD contractsLU tokenDepositAddress ID = True"
         using reachableFromInitLU reachableFromReleaseSetsFlag by blast
       then show False
         using assms
@@ -169,7 +169,7 @@ next
     using tokenDepositBalanceBridgeNotDead[OF assms(1) assms(4) assms(2)]
     by simp
 next
-  show "getRelease (the (tokenDepositState contractsLU tokenDepositAddress)) ID = False"
+  show "getReleaseTD contractsLU tokenDepositAddress ID = False"
     by fact
 next
   show "tokenDepositAddress \<noteq> sender msg'"
@@ -188,7 +188,7 @@ next
                Some (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsLU tokenDepositAddress)))"
       by simp
   next
-    have "getWithdrawal (the (bridgeState contractsLastUpdate' bridgeAddress)) ID =
+    have "getWithdrawalB contractsLastUpdate' bridgeAddress ID =
           hash3 caller token amount"
       using reachableFromBurnSetsFlag[OF reachableFromInitI \<open>BURN bridgeAddress caller ID token amount \<in> set stepsInit\<close>]
       by blast
@@ -219,12 +219,12 @@ end
 context StrongHashProofVerifier
 begin
 
+(* FIXME: move *)
 lemma nonCanceledDepositGetDeposit:
   assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
   assumes "\<not> isCanceledID tokenDepositAddress token ID steps"
   assumes "reachableFrom contracts contracts' steps"
-  shows "getDeposit (the (tokenDepositState contracts' tokenDepositAddress)) ID =
-            hash3 caller token amount"
+  shows "getDepositTD contracts' tokenDepositAddress ID = hash3 caller token amount"
 proof-
   have *: "\<nexists>caller amount proof token'. CANCEL_WD tokenDepositAddress caller ID token' amount proof \<in> set steps"
   proof (rule ccontr)
@@ -246,7 +246,7 @@ proof-
     using reachableFromStepInSteps by blast
   then obtain contractsD where 
     "reachableFrom contractsD contracts' steps1"
-    "getDeposit (the (tokenDepositState contractsD tokenDepositAddress)) ID = 
+    "getDepositTD contractsD tokenDepositAddress ID = 
      hash3 caller token amount"
     by (smt (verit, ccfv_threshold) DEPOSITNoDouble' HashProofVerifier.executeStep.simps(1) HashProofVerifier_axioms Un_iff append_Cons append_Cons_eq_iff assms(1) assms(3) callDepositWritesHash reachableFromStepInSteps self_append_conv2 senderMessage set_append)
   then show ?thesis
@@ -267,7 +267,7 @@ theorem releasePossibleAfterBurnAndUpdateBridgeDead:
   \<comment> \<open>A burn is successfully made\<close>
   assumes "BURN bridgeAddress caller ID token amount \<in> set stepsInit"
   \<comment> \<open>there was no previous release\<close>
-  assumes "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = False"
+  assumes "getReleaseTD contractsBD tokenDepositAddress ID = False"
 
   \<comment> \<open>The user who burned the tokens can release them\<close>
   assumes "sender msg' = caller"
@@ -302,7 +302,7 @@ next
       then obtain caller' amount' proof' where "RELEASE tokenDepositAddress caller' ID token amount' proof' \<in> set stepsAllBD"
         unfolding isReleasedID_def
         by auto
-      then have "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = True"
+      then have "getReleaseTD contractsBD tokenDepositAddress ID = True"
         using reachableFromReleaseSetsFlag InitBD.reachableFromInitI 
         by blast
       then show False
@@ -323,7 +323,7 @@ next
     using assms(1) assms(2) le_add2
     by presburger
 next
-  show "getRelease (the (tokenDepositState contractsBD tokenDepositAddress)) ID = False"
+  show "getReleaseTD contractsBD tokenDepositAddress ID = False"
     by fact
 next
   show "tokenDepositAddress \<noteq> sender msg'"
@@ -342,7 +342,7 @@ next
                Some (the (bridgeState contractsLastUpdate' (bridgeAddressTD contractsBD tokenDepositAddress)))"
       by simp
   next
-    have "getWithdrawal (the (bridgeState contractsLastUpdate' bridgeAddress)) ID =
+    have "getWithdrawalB contractsLastUpdate' bridgeAddress ID =
           hash3 caller token amount"
       using reachableFromBurnSetsFlag[OF reachableFromInitI \<open>BURN bridgeAddress caller ID token amount \<in> set stepsInit\<close>]
       by blast
@@ -409,7 +409,7 @@ proof-
             lastStateTD contractsBD tokenDepositAddress = stateRoot"
         using bridgeDeadContractsBD by blast
     next
-      have "getClaim (the (bridgeState contractsLastUpdate' bridgeAddress)) ID = False"
+      have "getClaimB contractsLastUpdate' bridgeAddress ID = False"
       proof-
         have "\<nexists>caller token amount proof.
               CLAIM bridgeAddress caller ID token amount proof \<in> set stepsInit"
@@ -428,7 +428,7 @@ proof-
             by auto
         qed
         moreover
-        have "getClaim (the (bridgeState contractsInit bridgeAddress)) ID = False"
+        have "getClaimB contractsInit bridgeAddress ID = False"
           using claimsEmpty by blast
         ultimately show ?thesis
           using reachableFromGetClaimNoClaim[OF reachableFromInitI]
@@ -455,7 +455,7 @@ proof-
           by simp
       qed
     next
-      show "getDeposit (the (tokenDepositState contractsBD tokenDepositAddress)) ID =
+      show "getDepositTD  contractsBD tokenDepositAddress ID =
             hash3 (sender (message caller 0)) token amount"
         using  nonCanceledDepositGetDeposit[OF 
              \<open>DEPOSIT tokenDepositAddress caller ID token amount \<in> set stepsAllBD\<close>
@@ -482,7 +482,7 @@ theorem withdrawPossibe:
   assumes "accountBalance contractsLastUpdate' (mintedTokenB contractsInit bridgeAddress token) (sender msg) = amount"
   \<comment> \<open>Caller has not yet withdrawn his balance\<close>
   assumes notWithdrawn: 
-    "getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False"
+    "getTokenWithdrawnTD contractsBD tokenDepositAddress (hash2 (sender msg) token) = False"
   \<comment> \<open>Sender is not the bridge itself\<close>
   assumes "tokenDepositAddress \<noteq> sender msg"
   \<comment> \<open>Withdraw succedes\<close>
@@ -510,7 +510,7 @@ proof-
       using assms(1)
       by simp
   next
-    show "getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False"
+    show "getTokenWithdrawnTD contractsBD tokenDepositAddress (hash2 (sender msg) token) = False"
       by fact
   next
     show "fst (snd (getDeadStatus contractsBD (the (tokenDepositState contractsBD tokenDepositAddress)) block)) = True"
@@ -545,7 +545,7 @@ proof-
           qed
           moreover 
           have "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress (sender msg) token amount proof \<in> set stepsAllBD"
-            using \<open>getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 (sender msg) token) = False\<close>
+            using \<open>getTokenWithdrawnTD contractsBD tokenDepositAddress (hash2 (sender msg) token) = False\<close>
             using InitBD.reachableFromInitI reachableFromGetTokenWithdrawnNoWithdraw by blast
           ultimately show ?thesis
             using nonWithdrawnMintedUserBalancesNoWithdraw
@@ -593,17 +593,6 @@ qed
 
 end
 
-context HashProofVerifier
-begin
-(* FIXME: move *)
-lemma getReleaseNoReleaseFalse:
-  assumes "reachableFrom contracts contracts' steps"
-  assumes "\<not> isReleasedID tokenDepositAddress token ID steps"
-  assumes "getRelease (the (tokenDepositState contracts tokenDepositAddress)) ID = False"
-  shows "getRelease (the (tokenDepositState contracts' tokenDepositAddress)) ID = False"
-  sorry
-
-end
 
 context HashProofVerifier
 begin
@@ -693,13 +682,8 @@ proof-
       by (smt (verit, ccfv_threshold) BridgeDead.intro BridgeDead_axioms_def C_def Cons.IH Cons.prems(1) Cons.prems(2) InitUpdate_axioms LastUpdate_axioms bridgeDead deathStep distinct.simps(2) list.set_intros(2) list.simps(9) notBridgeDead' reachableFromContractsBD reachableFromTrans stateRootNonZero)
     interpret BD: BridgeDeadInitFirstUpdate where contractsBD = C and stepsBD = "map CANCEL_fun NCDepositSteps @ stepsBD"
     proof
-      have "updatesNonZero (map CANCEL_fun NCDepositSteps)"
-        unfolding CANCEL_fun_def updatesNonZero_def
-        by auto
-      then show "updatesNonZero BD'.stepsAllBD"
-        using updatesNonZeroInit
-        unfolding BD'.stepsAllBD_def stepsAllBD_def
-        by (simp add: updatesNonZero_def)
+      show "stateRootInit \<noteq> 0"
+        by (rule stateRootInitNonZero)
     next
       show "BD'.stepsAllBD \<noteq> [] \<and>
             last BD'.stepsAllBD = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
@@ -765,7 +749,7 @@ proof-
     unfolding paidBackAmountFrom_def CANCEL_WD_steps_def CANCEL_fun_def releasedAmountFrom_def releasesFrom_def withdrawnAmountFrom_def withdrawalsFrom_def canceledAmountFrom_def cancelsFrom_def nonClaimedBeforeNonCanceledDepositsAmountTo_def NCDepositSteps_def
     by (auto simp add: comp_def)
 
-  define NRBurnSteps where 
+  define NRBurnSteps where
     "NRBurnSteps = nonReleasedBurnsTo tokenDepositAddress bridgeAddress token caller stepsInit stepsAllBD"
   define RELEASE_fun where 
     "RELEASE_fun = (\<lambda> step. RELEASE tokenDepositAddress caller (BURN_id step) token (BURN_amount step)
@@ -810,14 +794,8 @@ proof-
         unfolding BD'.stepsAllBD_def stepsAllBD_def
         by auto
     next
-      have "updatesNonZero (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps)"
-        unfolding CANCEL_WD_steps_def CANCEL_fun_def RELEASE_fun_def updatesNonZero_def
-        by auto
-      then show "updatesNonZero BD'.stepsAllBD"
-        unfolding BD'.stepsAllBD_def
-        using updatesNonZeroInit
-        unfolding BD'.stepsAllBD_def stepsAllBD_def
-        by (simp add: updatesNonZero_def)
+      show "stateRootInit \<noteq> 0"
+        by (rule stateRootInitNonZero)
     qed
 
     have "let proof = generateBurnProof contractsLastUpdate' (BURN_id step)
@@ -848,20 +826,25 @@ proof-
         show "getRelease (the (tokenDepositState contractsInit tokenDepositAddress)) (BURN_id step) = False"
           using releasesEmpty by presburger
       next
-        show "\<not> isReleasedID tokenDepositAddress token (BURN_id step)
-             (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsAllBD)"
+        show "\<nexists> token caller amount proof. 
+                RELEASE tokenDepositAddress caller (BURN_id step) token amount proof \<in> 
+                set (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsAllBD)"
         proof-
-          have "\<not> isReleasedID tokenDepositAddress token (BURN_id step) CANCEL_WD_steps"
+          have "\<nexists> token caller amount proof. 
+                RELEASE tokenDepositAddress caller (BURN_id step) token amount proof \<in> 
+                set CANCEL_WD_steps"
             unfolding CANCEL_WD_steps_def isReleasedID_def CANCEL_fun_def
             by auto
           moreover
-          have "\<not> isReleasedID tokenDepositAddress token (BURN_id step) (map RELEASE_fun NRBurnSteps)"
+          have "\<nexists> token caller amount proof. 
+                RELEASE tokenDepositAddress caller (BURN_id step) token amount proof \<in> 
+                set (map RELEASE_fun NRBurnSteps)"
           proof (rule ccontr)
             assume "\<not> ?thesis"
-            then obtain caller' amount' proof' where
-              "RELEASE tokenDepositAddress caller' (BURN_id step) token amount' proof' \<in> set (map RELEASE_fun NRBurnSteps)"
-              unfolding isReleasedID_def
-              by auto
+            then obtain token' caller' amount' proof' where
+              "RELEASE tokenDepositAddress caller' (BURN_id step) token' amount' proof' \<in> 
+               set (map RELEASE_fun NRBurnSteps)"
+              by blast
             then have "BURN_id step \<in> set (map BURN_id NRBurnSteps)"
               unfolding RELEASE_fun_def
               by auto
@@ -869,10 +852,44 @@ proof-
               using Cons.prems(2)
               by simp
           qed
+          moreover
+          have "\<nexists> token caller amount proof. 
+                RELEASE tokenDepositAddress caller (BURN_id step) token amount proof \<in> 
+                set stepsAllBD"
+          proof (rule ccontr)
+            assume "\<not> ?thesis"
+            then obtain token' caller' amount' proof' where 
+                  *: "RELEASE tokenDepositAddress caller' (BURN_id step) token' amount' proof' \<in> set stepsAllBD"
+              by auto
+            then obtain steps1 steps2 where
+              "stepsAllBD = steps2 @ [RELEASE tokenDepositAddress caller' (BURN_id step) token' amount' proof'] @ steps1"
+              by (metis append_Cons append_self_conv2 in_set_conv_decomp)
+            then have burn': "BURN bridgeAddress caller' (BURN_id step) token' amount' \<in> set stepsAllBD"
+              using burnBeforeReleaseSteps[of _ caller' "BURN_id step" token' amount' proof']
+              by simp
+            have "\<not> isReleasedID tokenDepositAddress token (BURN_id step) stepsAllBD"
+              using Cons.prems(1)
+              by auto
+            then have "token \<noteq> token'"
+              using *
+              unfolding isReleasedID_def
+              by auto
+
+            moreover
+            have "step = BURN bridgeAddress caller (BURN_id step) token (BURN_amount step) \<and>
+                  step \<in> set stepsAllBD"
+              using Cons.prems(1)
+              by (auto simp add: burnsTo_def stepsAllBD_def)
+            then have "token = token'"
+              using burn'
+              by (metis BURNNoDoubleCTA InitBD.reachableFromInitI)
+            ultimately 
+            show False
+              by simp
+          qed
           ultimately
           show ?thesis
-            using Cons.prems(1)
-            by (simp add: isReleasedID_def)
+            by auto
         qed
       qed
     qed
@@ -894,7 +911,6 @@ proof-
   let ?mintedToken = "mintedTokenB contractsInit bridgeAddress token"
   define amount where "amount = accountBalance contractsLastUpdate' ?mintedToken caller"
 
-
   interpret BD': BridgeDead where contractsBD=contractsR and stepsBD = "RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
     using BridgeDead_axioms_def BridgeDead_def InitUpdate_axioms LastUpdate_axioms \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close> bridgeDead deathStep notBridgeDead' reachableFromContractsBD reachableFromTrans stateRootNonZero by presburger
   interpret BD: BridgeDeadInitFirstUpdate where contractsBD=contractsR and stepsBD = "RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
@@ -904,16 +920,9 @@ proof-
       unfolding BD'.stepsAllBD_def stepsAllBD_def
       by auto
   next
-    have "updatesNonZero (RELEASE_steps @ CANCEL_WD_steps)"
-      unfolding CANCEL_WD_steps_def CANCEL_fun_def RELEASE_steps_def RELEASE_fun_def updatesNonZero_def
-      by auto
-    then show "updatesNonZero BD'.stepsAllBD"
-      unfolding BD'.stepsAllBD_def
-      using updatesNonZeroInit
-      unfolding BD'.stepsAllBD_def stepsAllBD_def
-      by (simp add: updatesNonZero_def)
+    show "stateRootInit \<noteq> 0"
+      by (simp add: stateRootInitNonZero)
   qed
-
 
   have noDeposits:
      "depositsTo tokenDepositAddress token caller (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD) =
@@ -1055,14 +1064,8 @@ proof-
         unfolding stepsAllBD_def BD''.stepsAllBD_def
         by auto
     next
-    have "updatesNonZero (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps)"
-      unfolding WITHDRAW_WD_step_def CANCEL_WD_steps_def CANCEL_fun_def RELEASE_steps_def RELEASE_fun_def updatesNonZero_def
-      by auto
-    then show "updatesNonZero BD''.stepsAllBD"
-      unfolding BD''.stepsAllBD_def
-      using updatesNonZeroInit
-      unfolding BD'.stepsAllBD_def stepsAllBD_def
-      by (simp add: updatesNonZero_def)
+      show "stateRootInit \<noteq> 0"
+        by (simp add: stateRootInitNonZero)
     qed
 
     show ?thesis

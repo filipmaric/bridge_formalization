@@ -9,9 +9,8 @@ begin
 \<comment> \<open>Once written withdraw hash cannot be unset\<close>
 lemma reachableFromGetWithdrawalNoUnset:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID \<noteq> 0"
-  shows "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID = 
-         getWithdrawal (the (bridgeState contracts bridgeAddress)) ID"
+  assumes "getWithdrawalB contracts bridgeAddress ID \<noteq> 0"
+  shows "getWithdrawalB contracts' bridgeAddress ID = getWithdrawalB contracts bridgeAddress ID"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -47,8 +46,8 @@ begin
 text \<open>deposit flag can be set only by an appropriate DEPOSIT step\<close>
 lemma getWithrawalWrittenOnlyByBURN:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
-  assumes "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID = hash3 caller token amount"
+  assumes "getWithdrawalB contracts bridgeAddress ID = 0"
+  assumes "getWithdrawalB contracts' bridgeAddress ID = hash3 caller token amount"
   shows "BURN bridgeAddress caller ID token amount \<in> set steps"
 proof (rule ccontr)
   assume *: "\<not> ?thesis"
@@ -80,8 +79,7 @@ proof (rule ccontr)
             by simp
         next
           case False
-          then have "getWithdrawal (the (bridgeState contracts'' bridgeAddress)) ID =
-                     hash3 caller' token' amount'"
+          then have "getWithdrawalB contracts'' bridgeAddress ID = hash3 caller' token' amount'"
             using BURN reachableFrom_step \<open>\<not> address' \<noteq> bridgeAddress\<close> callWithdrawWritesWithdrawal
             by (metis executeStep.simps(3) senderMessage)
           then have "hash3 caller token amount = hash3 caller' token' amount'"
@@ -102,8 +100,8 @@ qed
 \<comment> \<open>Only BURN step can set withrawal flag to non-zero\<close>
 lemma reachableFromGetWithdrawalBurn:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
-  assumes "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID \<noteq> 0"
+  assumes "getWithdrawalB contracts bridgeAddress ID = 0"
+  assumes "getWithdrawalB contracts' bridgeAddress ID \<noteq> 0"
   shows "\<exists> caller token amount. BURN bridgeAddress caller ID token amount \<in> set steps"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
@@ -113,7 +111,7 @@ proof (induction contracts contracts' steps rule: reachableFrom.induct)
 next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
   show ?case
-  proof (cases "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID \<noteq> 0")
+  proof (cases "getWithdrawalB contracts' bridgeAddress ID \<noteq> 0")
     case True
     then show ?thesis
       using reachableFrom_step
@@ -135,7 +133,7 @@ qed
 \<comment> \<open>BURN is not executable once the withdrawal flag is set\<close>
 lemma reachableFromGetWithrawalNoBurn:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID \<noteq> 0"
+  assumes "getWithdrawalB contracts bridgeAddress ID \<noteq> 0"
   shows "\<nexists> caller token amount. BURN bridgeAddress caller ID token amount \<in> set steps"
   using assms
   by (smt (verit, best) HashProofVerifier.reachableFromStepInSteps HashProofVerifier_axioms callWithdrawGetWithdrawalZero executeStep.simps(3) reachableFromGetWithdrawalNoUnset)
@@ -144,7 +142,7 @@ lemma reachableFromGetWithrawalNoBurn:
 lemma reachableFromBurnSetsFlag:
   assumes "reachableFrom contracts contracts' steps"
   assumes "BURN address caller ID token amount \<in> set steps"
-  shows "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 caller token amount"
+  shows "getWithdrawalB contracts' address ID = hash3 caller token amount"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -155,7 +153,7 @@ next
   then show ?case
   proof (cases "BURN address caller ID token amount \<in> set steps")
     case True
-    then have "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 caller token amount"
+    then have "getWithdrawalB contracts' address ID = hash3 caller token amount"
       using reachableFrom_step.IH by auto
     then show ?thesis
       using hash3_nonzero[of caller token amount]
@@ -177,8 +175,8 @@ qed
 text \<open>Once written release entry cannot be unset\<close>
 lemma reachableFromGetReleaseTrue:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getRelease (the (tokenDepositState contracts address)) ID = True"
-  shows "getRelease (the (tokenDepositState contracts' address)) ID = True"
+  assumes "getReleaseTD contracts address ID = True"
+  shows "getReleaseTD contracts' address ID = True"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -198,7 +196,7 @@ qed
 lemma reachableFromReleaseSetsFlag:
   assumes "reachableFrom contracts contracts' steps"
   assumes "RELEASE address caller ID token amount proof \<in> set steps"
-  shows "getRelease (the (tokenDepositState contracts' address)) ID = True"
+  shows "getReleaseTD contracts' address ID = True"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -221,6 +219,28 @@ next
       using reachableFrom_step.hyps(2)
       by simp
   qed
+qed
+
+lemma getReleaseNoReleaseFalse:
+  assumes "reachableFrom contracts contracts' steps"
+  assumes "\<nexists> token caller amount proof. RELEASE tokenDepositAddress caller ID token amount proof \<in> set steps"
+  assumes "getReleaseTD contracts tokenDepositAddress ID = False"
+  shows "getReleaseTD contracts' tokenDepositAddress ID = False"
+  using assms
+proof (induction contracts contracts' steps rule: reachableFrom.induct)
+  case (reachableFrom_base contracts)
+  then show ?case 
+    by simp
+next
+  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+  proof (cases step)
+    case (RELEASE address' caller' ID' token' amount' proof')
+    show ?thesis
+      using reachableFrom_step.prems RELEASE reachableFrom_step.IH reachableFrom_step.hyps(2)
+      using callReleaseOtherAddress callReleaseOtherID
+      by (metis executeStep.simps(4) list.set_intros(1) list.set_intros(2))
+  qed auto
 qed
 
 end
@@ -249,11 +269,11 @@ proof-
   have "getRelease state' ID = True"
     using assms
     by (simp add: state'_def)
-  then have *: "getRelease (the (tokenDepositState contracts' address)) ID = True"
+  then have *: "getReleaseTD contracts' address ID = True"
     using state'_def
     by simp
   from \<open>reachableFrom contracts' contracts'' steps\<close>
-  have "getRelease (the (tokenDepositState contracts'' address)) ID = True"
+  have "getReleaseTD contracts'' address ID = True"
     using *
     using reachableFromGetReleaseTrue by blast
   then show ?thesis
@@ -513,10 +533,10 @@ proof-
     using updateSuccess[of contracts "stateOracleAddressTD contracts tokenDepositAddress" _ _ ?stateRoot]
     by simp
 
-  have "getWithdrawal (the (bridgeState contractsInit bridgeAddress)) ID = 0"
+  have "getWithdrawalB contractsInit bridgeAddress ID = 0"
     using withdrawalsEmpty by blast
   moreover
-  have "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = hash3 (sender msg) token amount"
+  have "getWithdrawalB contracts bridgeAddress ID = hash3 (sender msg) token amount"
     using verifyBurnProofE[OF *** *] **
     by (meson option.exhaust_sel properSetupInit properSetupReachable properSetup_def)
   ultimately 
@@ -544,7 +564,7 @@ proof-
     by (smt (verit, del_insts) append_butlast_last_id firstUpdate reachableFromAppend reachableFromInitI reachableFromTrans)
   interpret IFU: InitFirstUpdate where contractsI=contractsC and stepsInit="steps1' @ [last stepsInit]"
     using bl
-    by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def CC'(1) append.assoc append_butlast_last_id append_is_Nil_conv firstUpdate last_snoc not_Cons_self2 updatesNonZeroAppend(2) updatesNonZeroInit)
+    by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def CC'(1) append.assoc append_butlast_last_id append_is_Nil_conv firstUpdate last_snoc not_Cons_self2 stateRootInitNonZero)
   have "BURN bridgeAddress caller ID token amount \<in> set (steps1' @ [last stepsInit])"
     using IFU.burnBeforeRelease CC'(2)
     by (metis executeStep.simps(4) reachableFromSingleton senderMessage)
@@ -584,15 +604,7 @@ proof-
     by unfold_locales
 
   interpret IFU: InitFirstUpdate where contractsI=c1 and stepsInit=steps2
-  proof
-    show "reachableFrom contractsInit c1 steps2" by fact
-   next
-    show "updatesNonZero steps2"
-      by (metis "*"(4) Cons_eq_append_conv add_cancel_right_right list.size(4) nat.simps(3) updatesNonZeroAppend(2) updatesNonZeroInit)
-  next
-    show "steps2 \<noteq> [] \<and> last steps2 = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-      by (metis "*"(4) HashProofVerifier.Step.distinct(40) HashProofVerifier_axioms Nil_is_append_conv RELEASE_step_def firstUpdate last.simps last_append not_Cons_self)
-  qed
+    by (metis "*"(1) "*"(4) Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def RELEASE_step_def Step.distinct(40) append.simps(2) firstUpdate last.simps last_append list.simps(3) stateRootInitNonZero)
 
   have "BURN_step' \<in> set steps2"
     using * IFU.burnBeforeRelease
@@ -628,16 +640,7 @@ proof-
   obtain contracts where C: "reachableFrom contractsInit contracts ([?releaseStep] @ steps1)"
     by (metis assms reachableFromAppend reachableFromInitI)
   interpret IFU: InitFirstUpdate where contractsI=contracts and stepsInit="[?releaseStep] @ steps1"
-  proof
-    show "[?releaseStep] @ steps1 \<noteq> [] \<and> last ([?releaseStep] @ steps1) = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-      using assms firstUpdate by force
-  next
-    show "updatesNonZero ([?releaseStep] @ steps1)"
-      using assms updatesNonZeroAppend(2) updatesNonZeroInit by blast
-  next 
-    show "reachableFrom contractsInit contracts ([?releaseStep] @ steps1)"
-      by fact
-  qed
+    using C Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def assms firstUpdate stateRootInitNonZero by auto
 
   have "BURN bridgeAddress caller ID token amount \<in> set steps1"
     using IFU.burnBeforeReleaseSteps
@@ -683,10 +686,10 @@ proof-
     using callReleaseVerifyBurnProof[OF assms(1)] getLastValidStateLVS
     by simp
 
-  have "getWithdrawal (the (bridgeState contractsInit bridgeAddress)) ID = 0"
+  have "getWithdrawalB contractsInit bridgeAddress ID = 0"
     using withdrawalsEmpty by blast
   moreover
-  have "getWithdrawal (the (bridgeState contractsUpdate' bridgeAddress)) ID = hash3 (sender msg) token amount"
+  have "getWithdrawalB contractsUpdate' bridgeAddress ID = hash3 (sender msg) token amount"
     using verifyBurnProofE[OF _ *] bridgeStateINotNone generateStateRootUpdate' 
     by (metis option.collapse)
   ultimately 

@@ -5,29 +5,8 @@ begin
 context HashProofVerifier
 begin
 
-text \<open>State root is never zero in an update\<close>
-definition updatesNonZero where
-  "updatesNonZero steps \<longleftrightarrow> 
-     (\<forall> address stateRoot. UPDATE address stateRoot \<in> set steps \<longrightarrow> stateRoot \<noteq> 0)"
-
-lemma updatesNonZeroCons:
-  assumes "updatesNonZero (step # steps)"
-  shows "updatesNonZero steps" "\<forall> address stateRoot. step = UPDATE address stateRoot \<longrightarrow> stateRoot \<noteq> 0"
-  using assms
-  unfolding updatesNonZero_def
-  by auto
-
-declare updatesNonZeroCons(1)[simp]
-
-lemma updatesNonZeroAppend:
-  assumes "updatesNonZero (steps1 @ steps2)"
-  shows "updatesNonZero steps1" "updatesNonZero steps2"
-  using assms
-  by (auto simp add: updatesNonZero_def)
-
 lemma reachableFromStateRootNonZero:
   assumes "reachableFrom contracts contracts' steps" 
-  assumes "updatesNonZero steps"
   assumes "lastStateSO contracts address \<noteq> 0"
   shows "lastStateSO contracts' address \<noteq> 0"
   using assms
@@ -41,15 +20,14 @@ next
   proof (cases step)
     case (UPDATE address' stateRoot')
     then show ?thesis
-      using reachableFrom_step updatesNonZeroCons[of step steps]
-      using callUpdateLastState callUpdateOtherAddress
+      using reachableFrom_step
+      using callUpdateLastState callUpdateOtherAddress callUpdateStateRootNonZero
       by (metis executeStep.simps(6))
   qed auto
 qed
 
 lemma reachableFromGetLastStateTDNonzero:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "updatesNonZero steps"
   assumes "lastStateTD contracts tokenDepositAddress \<noteq> 0"
   shows "lastStateTD contracts' tokenDepositAddress \<noteq> 0"
   using assms reachableFromStateRootNonZero
@@ -60,7 +38,6 @@ text \<open>If there was at least one update and no updates set zero state,
 lemma lastStateNonZero:
   assumes "reachableFrom initContracts contracts steps"
   assumes "UPDATE (stateOracleAddressB contracts bridgeAddress) stateRoot \<in> set steps"
-  assumes "updatesNonZero steps"
   shows "lastStateB contracts bridgeAddress \<noteq> 0"
   using assms
 proof (induction initContracts contracts steps)
@@ -74,8 +51,8 @@ next
     case (UPDATE address' stateRoot')
     then show ?thesis
       using reachableFrom_step
-      using callUpdateLastState callUpdateOtherAddress reachableFromBridgeStateOracle
-      by (smt (verit, ccfv_threshold) executeStep.simps(6) updatesNonZeroCons reachableFrom.reachableFrom_step set_ConsD)
+      using callUpdateLastState callUpdateOtherAddress callUpdateStateRootNonZero reachableFromBridgeStateOracle
+      by (smt (verit, ccfv_threshold) executeStep.simps(6) reachableFrom.reachableFrom_step set_ConsD)
   qed auto
 qed
 

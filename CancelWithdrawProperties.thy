@@ -8,8 +8,8 @@ begin
 \<comment> \<open>Once set tokenWithdrawn flag cannot be unset\<close>
 lemma reachableFromGetTokenWithdrawn:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getTokenWithdrawn ((the (tokenDepositState contracts address))) h = True"
-  shows "getTokenWithdrawn ((the (tokenDepositState contracts' address))) h = True"
+  assumes "getTokenWithdrawnTD contracts address h = True"
+  shows "getTokenWithdrawnTD contracts' address h = True"
   using assms
 proof (induction contracts contracts' steps rule: reachableFrom.induct)
   case (reachableFrom_base contracts)
@@ -29,7 +29,7 @@ qed
 
 lemma reachableFromGetTokenWithdrawnNoWithdraw:
   assumes "reachableFrom contracts contracts' steps"
-  assumes "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = False"
+  assumes "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = False"
   shows "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
   using assms
 proof (induction contracts contracts' steps)
@@ -38,7 +38,7 @@ proof (induction contracts contracts' steps)
     by simp
 next
   case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
-  have "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = False"
+  have "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = False"
     using reachableFrom_step.prems reachableFrom_step.hyps 
   proof (cases step)
     case (WITHDRAW_WD address' caller' token' amount' proof')
@@ -86,8 +86,8 @@ begin
 lemma callWithdrawWhileDeadGetTokenWithdrawnOtherHash:
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
   assumes "h \<noteq> hash2 (sender msg) token"
-  shows "getTokenWithdrawn (the (tokenDepositState contracts' address)) h = 
-         getTokenWithdrawn (the (tokenDepositState contracts address)) h"
+  shows "getTokenWithdrawnTD contracts' address h = 
+         getTokenWithdrawnTD contracts address h"
   using assms
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -100,8 +100,8 @@ begin
 lemma reachableFromGetTokenWithdrawnNoWithdrawNoChange:
   assumes "reachableFrom contracts contracts' steps"
   assumes "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
-  shows "getTokenWithdrawn (the (tokenDepositState contracts' tokenDepositAddress)) (hash2 caller token) = 
-         getTokenWithdrawn (the (tokenDepositState contracts tokenDepositAddress)) (hash2 caller token)"
+  shows "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = 
+         getTokenWithdrawnTD contracts tokenDepositAddress (hash2 caller token)"
   using assms
 proof (induction contracts contracts' steps)
   case (reachableFrom_base contracts)
@@ -202,14 +202,14 @@ theorem callCancelNoDouble:
   assumes "reachableFrom contracts' contracts'' steps"
   shows "fst (callCancelDepositWhileDead contracts'' address msg' block' ID token' amount' proof') \<noteq> Success"
 proof-
-  have "getDeposit (the (tokenDepositState contracts' address)) ID = 0"
+  have "getDepositTD contracts' address ID = 0"
     using callCancelDepositWhileDeadDeposits assms(1)
     by (metis lookupNat_delete)
   moreover
   have "bridgeDead contracts' address"
     using callCancelDepositWhileDeadBridgeDead assms(1)
     by simp
-  ultimately have "getDeposit (the (tokenDepositState contracts'' address)) ID = 0"
+  ultimately have "getDepositTD contracts'' address ID = 0"
     using `reachableFrom contracts' contracts'' steps` reachableFromGetDepositBridgeDead 
     by blast
   then show ?thesis
@@ -227,10 +227,10 @@ lemma callWithdrawWhileDeadNoDouble:
   assumes "reachableFrom contracts' contracts'' steps"
   shows "fst (callWithdrawWhileDead contracts'' address msg block' token amount' proof') \<noteq> Success"
 proof-
-  have "getTokenWithdrawn ((the (tokenDepositState contracts' address))) (hash2 (sender msg) token) = True"
+  have "getTokenWithdrawnTD contracts' address (hash2 (sender msg) token) = True"
     using assms
     using callWithdrawWhileDeadTokenWithdrawn by blast
-  then have "getTokenWithdrawn ((the (tokenDepositState contracts'' address))) (hash2 (sender msg) token) = True"
+  then have "getTokenWithdrawnTD contracts'' address (hash2 (sender msg) token) = True"
     using assms
     using reachableFromGetTokenWithdrawn by blast
   then show ?thesis
@@ -312,7 +312,7 @@ begin
 
 lemma callCancelDepositWhileDeadGetDepositBefore:
   assumes "callCancelDepositWhileDead contracts address msg block ID token amount proof = (Success, contracts')"
-  shows "getDeposit (the (tokenDepositState contracts address)) ID = hash3 (sender msg) token amount"
+  shows "getDepositTD contracts address ID = hash3 (sender msg) token amount"
   using assms
   unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
   by (simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -325,17 +325,16 @@ lemma onlyDepositorCanCancel:
   assumes cancel: "callCancelDepositWhileDead contractsC tokenDepositAddress msg' block' ID token' amount' proof = (Success, contractsC')"
   shows "sender msg' = sender msg" "token' = token" "amount' = amount"
 proof-
-  have "getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID = hash3 (sender msg) token amount"
+  have "getDepositTD contractsD' tokenDepositAddress ID = hash3 (sender msg) token amount"
     using callDepositWritesHash deposit
     by simp
   moreover
-  have "getDeposit (the (tokenDepositState contractsC tokenDepositAddress)) ID = hash3 (sender msg') token' amount'"
+  have "getDepositTD contractsC tokenDepositAddress ID = hash3 (sender msg') token' amount'"
     using callCancelDepositWhileDeadGetDepositBefore[OF cancel]
     by simp
   moreover
-  have "getDeposit (the (tokenDepositState contractsC tokenDepositAddress)) ID = 
-        getDeposit (the (tokenDepositState contractsD' tokenDepositAddress)) ID \<or>
-        getDeposit (the (tokenDepositState contractsC tokenDepositAddress)) ID = 0"
+  have "getDepositTD contractsC tokenDepositAddress ID = getDepositTD contractsD' tokenDepositAddress ID \<or>
+        getDepositTD contractsC tokenDepositAddress ID = 0"
     using assms
     by (metis reachableFromGetDeposit calculation(1) hash3_nonzero)
   ultimately
@@ -402,7 +401,7 @@ theorem cancelDepositOnlyAfterDeposit:
   \<comment> \<open>there must had been a previous deposit with the same ID\<close>
   shows "DEPOSIT tokenDepositAddress (sender msg) ID token amount \<in> set stepsInit"
 proof-
-  have "getDeposit (the (tokenDepositState contractsI tokenDepositAddress)) ID = hash3 (sender msg) token amount"
+  have "getDepositTD contractsI tokenDepositAddress ID = hash3 (sender msg) token amount"
     using cancel
     unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
     by (simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -427,7 +426,7 @@ proof (rule ccontr)
   then obtain caller' token' amount' proof' where 
     *: "CLAIM bridgeAddress caller' ID token' amount' proof' \<in> set stepsInit"
     by auto
-  then have "getClaim (the (bridgeState contractsUpdate' bridgeAddress)) ID = True"
+  then have "getClaimB contractsUpdate' bridgeAddress ID = True"
     using claimStepSetsClaim reachableFromInitI
     by blast
 
@@ -438,7 +437,7 @@ proof (rule ccontr)
     using getLastValidStateLVS
     by simp
     
-  then have "getClaim (the (bridgeState contractsUpdate' bridgeAddress)) ID = False"
+  then have "getClaimB contractsUpdate' bridgeAddress ID = False"
     by (metis generateStateRootUpdate' option.collapse properSetupUpdate' properSetup_def verifyClaimProofE)
 
   ultimately
@@ -480,7 +479,7 @@ begin
 
 lemma getTokenWithdrawnNotBridgeDead:
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
-  shows "getTokenWithdrawn (the (tokenDepositState contractsI tokenDepositAddress)) (hash2 caller token) = False"
+  shows "getTokenWithdrawnTD contractsI tokenDepositAddress (hash2 caller token) = False"
   using tokenWithdrawnEmpty reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF reachableFromInitI]
   using assms noWithdrawBeforeBridgeDead reachableFromInitI
   by blast

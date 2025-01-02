@@ -148,15 +148,15 @@ locale Init' = StrongHashProofVerifier +
     "properSetup contractsInit tokenDepositAddress bridgeAddress"
   \<comment> \<open>All relevant data is still empty\<close>
   assumes depositsEmpty [simp]: 
-    "\<And> ID. getDeposit (the (tokenDepositState contractsInit tokenDepositAddress)) ID = 0"
+    "\<And> ID. getDepositTD contractsInit tokenDepositAddress ID = 0"
   assumes tokenWithdrawnEmpty [simp]: 
-    "\<And> H. getTokenWithdrawn (the (tokenDepositState contractsInit tokenDepositAddress)) H = False"
+    "\<And> H. getTokenWithdrawnTD contractsInit tokenDepositAddress H = False"
   assumes releasesEmpty [simp]: 
-    "\<And> ID. getRelease (the (tokenDepositState contractsInit tokenDepositAddress)) ID = False"
+    "\<And> ID. getReleaseTD contractsInit tokenDepositAddress ID = False"
   assumes claimsEmpty [simp]:
-    "\<And> ID. getClaim (the (bridgeState contractsInit bridgeAddress)) ID = False"
+    "\<And> ID. getClaimB contractsInit bridgeAddress ID = False"
   assumes withdrawalsEmpty [simp]: 
-    "\<And> ID. getWithdrawal (the (bridgeState contractsInit bridgeAddress)) ID = 0"
+    "\<And> ID. getWithdrawalB contractsInit bridgeAddress ID = 0"
   assumes lastStateBZero [simp]:
     "lastStateB contractsInit bridgeAddress = 0"
   assumes notDead [simp]: 
@@ -326,15 +326,9 @@ locale InitFirstUpdate = Init +
   fixes stateRootInit :: "bytes32"
   assumes firstUpdate:
     "stepsInit \<noteq> [] \<and> last stepsInit = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-  assumes updatesNonZeroInit [simp]:
-    "updatesNonZero stepsInit"
+  assumes stateRootInitNonZero: 
+    "stateRootInit \<noteq> 0"
 begin
-
-lemma stateRootInitNonZero:
-  "stateRootInit \<noteq> 0"
-  using firstUpdate updatesNonZeroInit
-  unfolding updatesNonZero_def
-  by (metis last_in_set)
 
 definition UPDATE1_step where 
   "UPDATE1_step = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
@@ -374,13 +368,12 @@ qed
 
 lemma getLastStateBContractsUNonZero:
   shows "lastStateB contractsI bridgeAddress \<noteq> 0"
-  by (metis lastStateNonZero reachableFromBridgeStateOracle firstUpdate last_in_set reachableFromInitI updatesNonZeroInit)
+  by (metis lastStateNonZero reachableFromBridgeStateOracle firstUpdate last_in_set reachableFromInitI)
 
 end
 
 (* ------------------------------------------------------------------------------------ *)
-locale InitFirstUpdateLastUpdate = InitFirstUpdate where contractsI=contractsLastUpdate' + LastUpdate +
-  assumes updatesNonZeroLU: "updatesNonZero (stepsNoUpdate @ [UPDATE_step] @ stepsInit)"
+locale InitFirstUpdateLastUpdate = InitFirstUpdate where contractsI=contractsLastUpdate' + LastUpdate
 begin
 
 definition stepsAllLU where
@@ -393,10 +386,10 @@ lemma reachableFromInitLU [simp]:
 end
 
 sublocale InitFirstUpdateLastUpdate \<subseteq> IFLU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
-  by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stepsAllLU_def updatesNonZeroLU)
+  by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stateRootInitNonZero stepsAllLU_def)
 
 sublocale InitFirstUpdateLastUpdate \<subseteq> IFLastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
-  by (smt (verit) Cons_eq_append_conv Init'_axioms Init.intro InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro firstUpdate last_ConsR list.distinct(1) reachableFrom.cases reachableFromInitI reachableFromTrans reachableFromUpdate'Update updatesNonZeroAppend(2) updatesNonZeroLU)
+  by (metis (full_types) Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_Cons append_Nil firstUpdate last_ConsR list.distinct(1) reachableFromInitI reachableFromTrans reachableFromUpdate'Update stateRootInitNonZero)
 
 (* ------------------------------------------------------------------------------------ *)
 
@@ -426,7 +419,7 @@ lemma InitFirstUpdateAxiomsInduction [simp]:
       contractsI' steps stateRootInit"
   using assms
   unfolding InitFirstUpdate_def InitFirstUpdate_axioms_def
-  by (metis InitInduction last_ConsR updatesNonZeroCons(1))
+  by (metis InitInduction last_ConsR)
 end
 
 
@@ -527,7 +520,6 @@ locale BridgeDead =
   \<comment> \<open>Current contracts are reached\<close>
   assumes reachableFromContractsBD [simp]:
     "reachableFrom contractsDead contractsBD stepsBD"
- (* NOTE: additional assumptions *)
   \<comment> \<open>state root hash is not zero\<close>
   assumes stateRootNonZero:
     "stateRoot \<noteq> 0"

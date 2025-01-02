@@ -32,14 +32,14 @@ lemma claimWritesClaim:
 
 lemma callClaimWritesClaim:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "getClaim (the (bridgeState contracts' address)) ID = True"
+  shows "getClaimB contracts' address ID = True"
   using assms claimWritesClaim
   unfolding callClaim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
 
 lemma callClaimGetClaimFalse: 
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-  shows "getClaim (the (bridgeState contracts address)) ID = False"
+  shows "getClaimB contracts address ID = False"
   using assms
   unfolding callClaim_def claim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -50,7 +50,7 @@ lemma callClaimNoDouble:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
   shows "fst (callClaim contracts' address msg' ID token' amount' proof') \<noteq> Success"
 proof-
-  have "getClaim (the (bridgeState contracts' address)) ID = True"
+  have "getClaimB contracts' address ID = True"
     using assms
     by (simp add: callClaimWritesClaim)
   then show ?thesis
@@ -76,6 +76,18 @@ lemma callClaimBalanceOfMinted:
   using assms claimBalanceOfMinted
   unfolding callClaim_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
+lemma callClaimBalanceOfOther:
+  assumes "callClaim contracts bridgeAddress msg ID token amount proof = (Success, contracts')"
+  assumes "user \<noteq> sender msg"
+  shows "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) user = 
+         accountBalance contracts (mintedTokenB contracts bridgeAddress token) user"
+  using assms
+  using callOriginalToMinted
+  using callMintBalanceOfOther[of user "sender msg" contracts "mintedTokenB contracts bridgeAddress token"]
+  unfolding callClaim_def claim_def
+  by (auto simp add:Let_def split: option.splits prod.splits if_split_asm)
+
 
 lemma callClaimOtherToken:
   assumes "callClaim contracts address msg ID token amount proof = (Success, contracts')"
@@ -248,9 +260,9 @@ text \<open>The flag that records that money has been claimed cannot be unset\<c
 lemma callClaimPreservesTrueClaim [simp]:
   assumes
     "callClaim contracts address msg ID token amount proof = (Success, contracts')"
-    "getClaim (the (bridgeState contracts address)) ID' = True"
+    "getClaimB contracts address ID' = True"
   shows
-    "getClaim (the (bridgeState contracts' address)) ID' = True"
+    "getClaimB contracts' address ID' = True"
 proof (cases "ID = ID'")
   case True
   then have False
@@ -294,8 +306,8 @@ lemma callClaimLastValidStateTD [simp]:
 lemma callClaimGetClaimOther:
   assumes "callClaim contracts address msg ID' token amount proof = (Success, contracts')"
   assumes "address \<noteq> bridgeAddress \<or> ID' \<noteq> ID"
-  shows "getClaim (the (bridgeState contracts' bridgeAddress)) ID = 
-         getClaim (the (bridgeState contracts bridgeAddress)) ID"
+  shows "getClaimB contracts' bridgeAddress ID = 
+         getClaimB contracts bridgeAddress ID"
   using assms
   unfolding callClaim_def claim_def
   by (cases "address = bridgeAddress")
@@ -363,7 +375,7 @@ lemma withdrawWritesWithdrawal:
 
 lemma callWithdrawWritesWithdrawal:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
-  shows "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 (sender msg) token amount"
+  shows "getWithdrawalB contracts' address ID = hash3 (sender msg) token amount"
   using assms withdrawWritesWithdrawal
   unfolding callWithdraw_def
   by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
@@ -378,7 +390,7 @@ lemma callWithdrawNoDouble:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
   shows "fst (callWithdraw contracts' address msg' ID token' amount') \<noteq> Success"
 proof-
-  have "getWithdrawal (the (bridgeState contracts' address)) ID = hash3 (sender msg) token amount"
+  have "getWithdrawalB contracts' address ID = hash3 (sender msg) token amount"
     using assms
     by (simp add: callWithdrawWritesWithdrawal)
   then show ?thesis
@@ -444,7 +456,18 @@ proof-
     using assms(2)
     by blast
 qed
-    
+
+lemma callWithdrawBalanceOfOther:
+  assumes "callWithdraw contracts address msg ID token amount  = (Success, contracts')"
+  assumes "account \<noteq> sender msg"
+  shows "accountBalance contracts' (mintedTokenB contracts address token) account = 
+         accountBalance contracts (mintedTokenB contracts address token) account"
+  using assms
+  unfolding callWithdraw_def withdraw_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm) 
+     (metis callBurnBalanceOfOther callBurnOtherToken)
+  (* FIXME: avoid methods after auto *)
+
 
 lemma callWithdrawOtherToken:
   assumes "callWithdraw contracts address msg ID token amount = (Success, contracts')"
@@ -464,7 +487,7 @@ qed
 
 lemma callWithdrawGetWithdrawalZero [simp]:
   assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
-  shows "getWithdrawal (the (bridgeState contracts bridgeAddress)) ID = 0"
+  shows "getWithdrawalB contracts bridgeAddress ID = 0"
   using assms
   unfolding callWithdraw_def withdraw_def
   by (auto split: option.splits prod.splits if_split_asm)
@@ -472,8 +495,8 @@ lemma callWithdrawGetWithdrawalZero [simp]:
 lemma callWithdrawOtherID [simp]:
   assumes "ID' \<noteq> ID"
   assumes "callWithdraw contracts bridgeAddress msg ID token amount = (Success, contracts')"
-  shows "getWithdrawal (the (bridgeState contracts' bridgeAddress)) ID' = 
-         getWithdrawal (the (bridgeState contracts bridgeAddress)) ID'"
+  shows "getWithdrawalB contracts' bridgeAddress ID' = 
+         getWithdrawalB contracts bridgeAddress ID'"
   using assms
   unfolding callWithdraw_def withdraw_def
   by (auto split: option.splits prod.splits if_split_asm)
@@ -627,7 +650,7 @@ lemma callWithdrawI:
   assumes "mintedTokenB contracts address token \<noteq> 0"
   assumes "amount \<le> accountBalance contracts (mintedTokenB contracts address token) (sender msg)"
   \<comment> \<open>There must not be a prior withdraw with the same ID\<close>
-  assumes "getWithdrawal (the (bridgeState contracts address)) ID = 0"
+  assumes "getWithdrawalB contracts address ID = 0"
   assumes "amount > 0"
   shows "fst (callWithdraw contracts address msg ID token amount) = Success"
   using assms callOriginalToMintedI[OF assms(2), of token] callOriginalToMinted[of contracts "tokenPairsAddressB contracts address" token]

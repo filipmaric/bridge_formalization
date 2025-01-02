@@ -52,11 +52,6 @@ record TokenPairsState =
 
 section \<open>Token deposit\<close>
 
-locale TokenDepositStateLocale = 
-  fixes getDeposit :: "'a \<Rightarrow> uint256 \<Rightarrow> bytes32"
-  fixes setDeposit :: "'a \<Rightarrow> uint256 \<Rightarrow> bytes32 \<Rightarrow> 'a"
-  assumes "getDeposit (setDeposit s key value) key' = (if key' = key then value else getDeposit s key')"
-
 record TokenDepositState = 
    deposits :: "(uint256, bytes32) mapping"
    releases :: "(uint256, bool) mapping"
@@ -86,13 +81,6 @@ abbreviation setRelease :: "TokenDepositState \<Rightarrow> uint256 \<Rightarrow
 
 definition TIME_UNTIL_DEAD :: nat where
   "TIME_UNTIL_DEAD = 7 * 24 * 60 * 60" 
-
-interpretation TokenDepositStateLocale getDeposit setDeposit
-proof
-  fix s key "value" key'
-  show "getDeposit (setDeposit s key value) key' = (if key' = key then value else getDeposit s key')"
-    by (auto simp add: lookupNat_def lookup_default_update lookup_default_update_neq)
-qed
 
 text \<open>Bridge\<close>
 
@@ -168,6 +156,22 @@ abbreviation proofVerifierState :: "Contracts \<Rightarrow> address \<Rightarrow
 abbreviation setProofVerifierState :: "Contracts \<Rightarrow> address \<Rightarrow> ProofVerifierState \<Rightarrow> Contracts" where
   "setProofVerifierState contracts address state \<equiv> 
       contracts \<lparr> IProofVerifier := Mapping.update address state (IProofVerifier contracts) \<rparr>"
+
+abbreviation getDepositTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes32" where
+  "getDepositTD contracts tokenDepositAddress ID \<equiv> getDeposit (the (tokenDepositState contracts tokenDepositAddress)) ID"
+
+abbreviation getTokenWithdrawnTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bool" where
+  "getTokenWithdrawnTD contracts tokenDepositAddress withdrawHash \<equiv> getTokenWithdrawn (the (tokenDepositState contracts tokenDepositAddress)) withdrawHash"
+
+abbreviation getReleaseTD :: "Contracts \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bool" where
+  "getReleaseTD contracts tokenDepositAddress ID \<equiv> getRelease (the (tokenDepositState contracts tokenDepositAddress)) ID"
+
+abbreviation getClaimB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bool" where
+  "getClaimB contracts bridgeAddress ID \<equiv> getClaim (the (bridgeState contracts bridgeAddress)) ID"
+
+abbreviation getWithdrawalB :: "Contracts \<Rightarrow> address \<Rightarrow> uint256 \<Rightarrow> bytes32" where
+  "getWithdrawalB contracts bridgeAddress ID \<equiv> getWithdrawal (the (bridgeState contracts bridgeAddress)) ID"
+
 
 section \<open>IERC20\<close>
  
@@ -304,6 +308,8 @@ definition update :: "StateOracleState \<Rightarrow> Block \<Rightarrow> uint256
   "update state block blockNum stateRoot = 
    (if blockNum \<le> StateOracleState.lastBlockNum state then 
        (Fail ''Replay of old signed state'', state)
+    else if stateRoot = 0 then \<comment> \<open>additional condition when compared to the Solidity implementation\<close>
+       (Fail ''State root must not be zero'', state)
     else
        (Success, state \<lparr> StateOracleState.lastState := stateRoot, 
                          StateOracleState.lastUpdateTime := timestamp block,
