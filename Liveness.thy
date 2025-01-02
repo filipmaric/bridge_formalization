@@ -642,8 +642,7 @@ end
 context BridgeDeadInitFirstUpdate
 begin
 
-
-theorem
+theorem paybackPossibleBridgeDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
   assumes "caller \<noteq> tokenDepositAddress"
@@ -690,15 +689,31 @@ proof-
   next
     case (Cons step NCDepositSteps)
     define C where "C = foldr (\<lambda>s c. snd (executeStep c 0 \<lparr>timestamp = 0\<rparr> s)) (map CANCEL_fun NCDepositSteps) contractsBD"
+    interpret BD': BridgeDead where contractsBD = C and stepsBD = "map CANCEL_fun NCDepositSteps @ stepsBD"
+      by (smt (verit, ccfv_threshold) BridgeDead.intro BridgeDead_axioms_def C_def Cons.IH Cons.prems(1) Cons.prems(2) InitUpdate_axioms LastUpdate_axioms bridgeDead deathStep distinct.simps(2) list.set_intros(2) list.simps(9) notBridgeDead' reachableFromContractsBD reachableFromTrans stateRootNonZero)
     interpret BD: BridgeDeadInitFirstUpdate where contractsBD = C and stepsBD = "map CANCEL_fun NCDepositSteps @ stepsBD"
-      sorry
+    proof
+      have "updatesNonZero (map CANCEL_fun NCDepositSteps)"
+        unfolding CANCEL_fun_def updatesNonZero_def
+        by auto
+      then show "updatesNonZero BD'.stepsAllBD"
+        using updatesNonZeroInit
+        unfolding BD'.stepsAllBD_def stepsAllBD_def
+        by (simp add: updatesNonZero_def)
+    next
+      show "BD'.stepsAllBD \<noteq> [] \<and>
+            last BD'.stepsAllBD = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+        using firstUpdate
+        unfolding BD'.stepsAllBD_def stepsAllBD_def
+        by auto
+    qed
 
     have "\<exists>contractsCancel.
          reachableFrom C contractsCancel
           [CANCEL_WD tokenDepositAddress caller (DEPOSIT_id step) token (DEPOSIT_amount step) (generateClaimProof contractsLastUpdate' (DEPOSIT_id step))]"
     proof (rule BD.cancelPossible)
-      show "DEPOSIT tokenDepositAddress caller (DEPOSIT_id step) token (DEPOSIT_amount step) \<in> set BD.stepsAllBD"
-        using Cons.prems unfolding BD.stepsAllBD_def stepsAllBD_def depositsTo_def
+      show "DEPOSIT tokenDepositAddress caller (DEPOSIT_id step) token (DEPOSIT_amount step) \<in> set BD'.stepsAllBD"
+        using Cons.prems unfolding BD'.stepsAllBD_def stepsAllBD_def depositsTo_def
         by (auto split: if_split_asm)
     next
       show "properToken contractsInit tokenDepositAddress bridgeAddress token"
@@ -728,9 +743,9 @@ proof-
           using Cons.prems(2)
           by auto
       qed
-      then show "\<not> isCanceledID tokenDepositAddress token (DEPOSIT_id step) BD.stepsAllBD"
+      then show "\<not> isCanceledID tokenDepositAddress token (DEPOSIT_id step) BD'.stepsAllBD"
         using Cons.prems
-        unfolding stepsAllBD_def BD.stepsAllBD_def
+        unfolding stepsAllBD_def BD'.stepsAllBD_def
         unfolding isCanceledID_def
         by auto
     qed
@@ -771,7 +786,7 @@ proof-
   moreover 
 
   have "distinct (map BURN_id NRBurnSteps)"
-    sorry
+    by (metis NRBurnSteps_def distinctBurnsToIDs distinct_map_filter nonReleasedBurnsTo_def reachableFromInitI)
 
   ultimately
 
@@ -784,8 +799,26 @@ proof-
   next
     case (Cons step NRBurnSteps)
     define R where "R = foldr (\<lambda>s c. snd (executeStep c 0 \<lparr>timestamp = 0\<rparr> s)) (map RELEASE_fun NRBurnSteps) contractsC"
+    have "reachableFrom contractsDead R (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsBD)"
+      using Cons.prems(2) R_def \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> local.Cons(1) local.Cons(2) reachableFromTrans by force
+    then interpret BD': BridgeDead where contractsBD = R and stepsBD = "map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsBD"
+      by (metis BridgeDead.intro BridgeDead_axioms_def InitUpdate_axioms LastUpdate_axioms bridgeDead deathStep notBridgeDead' stateRootNonZero)
     interpret BD: BridgeDeadInitFirstUpdate where contractsBD = R and stepsBD = "map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsBD"
-      sorry
+    proof
+      show "BD'.stepsAllBD \<noteq> [] \<and> last BD'.stepsAllBD = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+        using firstUpdate
+        unfolding BD'.stepsAllBD_def stepsAllBD_def
+        by auto
+    next
+      have "updatesNonZero (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps)"
+        unfolding CANCEL_WD_steps_def CANCEL_fun_def RELEASE_fun_def updatesNonZero_def
+        by auto
+      then show "updatesNonZero BD'.stepsAllBD"
+        unfolding BD'.stepsAllBD_def
+        using updatesNonZeroInit
+        unfolding BD'.stepsAllBD_def stepsAllBD_def
+        by (simp add: updatesNonZero_def)
+    qed
 
     have "let proof = generateBurnProof contractsLastUpdate' (BURN_id step)
            in fst (callRelease R tokenDepositAddress (message caller 0) (BURN_id step) token (BURN_amount step) proof) = Success"
@@ -810,10 +843,10 @@ proof-
       show "getRelease (the (tokenDepositState R tokenDepositAddress)) (BURN_id step) = False"
       proof (rule getReleaseNoReleaseFalse)
         show "reachableFrom contractsInit R (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsAllBD)"
-          using BD.InitBD.reachableFromInitI BD.stepsAllBD_def stepsAllBD_def by force
+          using BD'.InitBD.reachableFromInitI BD'.stepsAllBD_def stepsAllBD_def by force
       next
         show "getRelease (the (tokenDepositState contractsInit tokenDepositAddress)) (BURN_id step) = False"
-          sorry
+          using releasesEmpty by presburger
       next
         show "\<not> isReleasedID tokenDepositAddress token (BURN_id step)
              (map RELEASE_fun NRBurnSteps @ CANCEL_WD_steps @ stepsAllBD)"
@@ -844,7 +877,7 @@ proof-
       qed
     qed
     then have "fst (executeStep R 0 \<lparr>timestamp = 0\<rparr> (RELEASE_fun step)) = Success"
-      unfolding RELEASE_fun_def (* WRONG BLOCK *)
+      unfolding RELEASE_fun_def
       by (simp add: Let_def)
     then have "executeStep R 0 \<lparr>timestamp = 0\<rparr> (RELEASE_fun step) = (Success, snd (executeStep R 0 \<lparr>timestamp = 0\<rparr> (RELEASE_fun step)))"
       by (metis prod.collapse)
@@ -861,12 +894,110 @@ proof-
   let ?mintedToken = "mintedTokenB contractsInit bridgeAddress token"
   define amount where "amount = accountBalance contractsLastUpdate' ?mintedToken caller"
 
-  show ?thesis
-  proof (cases "amount > 0")
-    case True
-    interpret BD: BridgeDeadInitFirstUpdate where contractsBD=contractsR and stepsBD = "RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
-      sorry
 
+  interpret BD': BridgeDead where contractsBD=contractsR and stepsBD = "RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
+    using BridgeDead_axioms_def BridgeDead_def InitUpdate_axioms LastUpdate_axioms \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close> bridgeDead deathStep notBridgeDead' reachableFromContractsBD reachableFromTrans stateRootNonZero by presburger
+  interpret BD: BridgeDeadInitFirstUpdate where contractsBD=contractsR and stepsBD = "RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
+  proof
+    show "BD'.stepsAllBD \<noteq> [] \<and> last BD'.stepsAllBD = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+      using firstUpdate
+      unfolding BD'.stepsAllBD_def stepsAllBD_def
+      by auto
+  next
+    have "updatesNonZero (RELEASE_steps @ CANCEL_WD_steps)"
+      unfolding CANCEL_WD_steps_def CANCEL_fun_def RELEASE_steps_def RELEASE_fun_def updatesNonZero_def
+      by auto
+    then show "updatesNonZero BD'.stepsAllBD"
+      unfolding BD'.stepsAllBD_def
+      using updatesNonZeroInit
+      unfolding BD'.stepsAllBD_def stepsAllBD_def
+      by (simp add: updatesNonZero_def)
+  qed
+
+
+  have noDeposits:
+     "depositsTo tokenDepositAddress token caller (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD) =
+      depositsTo tokenDepositAddress token caller stepsAllBD"
+  proof-
+    have "depositsTo tokenDepositAddress token caller RELEASE_steps = []"
+      unfolding RELEASE_steps_def RELEASE_fun_def
+      by (induction NRBurnSteps, auto)
+    moreover
+    have "depositsTo tokenDepositAddress token caller CANCEL_WD_steps = []"
+      unfolding CANCEL_WD_steps_def CANCEL_fun_def
+      by (induction NCDepositSteps, auto)
+    ultimately
+    show ?thesis
+      by (auto simp add: depositedAmountTo_def depositsTo_def)
+  qed
+
+
+  have allCanceled: "nonClaimedBeforeNonCanceledDepositsTo tokenDepositAddress bridgeAddress token caller stepsInit (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD) = []"
+  proof-
+    have "\<forall> step \<in> set (depositsTo tokenDepositAddress token caller stepsAllBD). 
+         \<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit \<longrightarrow>
+         isCanceledID tokenDepositAddress token (DEPOSIT_id step) (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD)"
+    proof safe
+      fix step
+      assume *: "step \<in> set (depositsTo tokenDepositAddress token caller stepsAllBD)"
+                "\<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit"
+      show "isCanceledID tokenDepositAddress token (DEPOSIT_id step) (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD)"
+      proof (cases "isCanceledID tokenDepositAddress token (DEPOSIT_id step) stepsAllBD")
+        case True
+        then show ?thesis
+          by (auto simp add: isCanceledID_def)
+      next
+        case False
+        then have "step \<in> set NCDepositSteps"
+          using *
+          unfolding NCDepositSteps_def nonClaimedBeforeNonCanceledDepositsTo_def
+          by auto
+        then have "isCanceledID tokenDepositAddress token (DEPOSIT_id step) CANCEL_WD_steps"
+          unfolding isCanceledID_def CANCEL_WD_steps_def CANCEL_fun_def
+          by auto
+        then show ?thesis
+           by (auto simp add: isCanceledID_def)
+      qed
+    qed
+    then show ?thesis
+       using noDeposits
+       unfolding nonClaimedBeforeNonCanceledDepositsTo_def
+       by (metis (no_types, lifting) filter_False)
+  qed
+
+  have allReleased: "nonReleasedBurnsTo tokenDepositAddress bridgeAddress token caller stepsInit (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD) = []"
+  proof-
+    have "\<forall> step \<in> set (burnsTo bridgeAddress token caller stepsInit). isReleasedID tokenDepositAddress token (BURN_id step) (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD)"
+    proof safe
+      fix step
+      assume "step \<in> set (burnsTo bridgeAddress token caller stepsInit)"
+      show "isReleasedID tokenDepositAddress token (BURN_id step) (RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD)"
+      proof (cases "isReleasedID tokenDepositAddress token (BURN_id step) stepsAllBD")
+        case True
+        then show ?thesis
+          by (auto simp add: isReleasedID_def)
+      next
+        case False
+        then have "step \<in> set NRBurnSteps"
+          using \<open>step \<in> set (burnsTo bridgeAddress token caller stepsInit)\<close>
+          unfolding NRBurnSteps_def nonReleasedBurnsTo_def
+          by auto
+        then have "isReleasedID tokenDepositAddress token (BURN_id step) (RELEASE_steps)"
+          unfolding RELEASE_steps_def RELEASE_fun_def isReleasedID_def
+          by auto
+        then show ?thesis
+          unfolding isReleasedID_def
+          by auto
+      qed
+    qed
+    then show ?thesis
+      unfolding nonReleasedBurnsTo_def
+      by auto
+  qed
+
+  show ?thesis
+  proof (cases "amount > 0 \<and> getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 caller token) = False")
+    case True
     define Proof where "Proof = generateBalanceProof contractsLastUpdate' ?mintedToken (sender (message caller 0)) amount"
     have "fst (callWithdrawWhileDead contractsR tokenDepositAddress (message caller 0) \<lparr>timestamp = 0\<rparr> token amount Proof) = Success"
       unfolding Proof_def
@@ -886,7 +1017,17 @@ proof-
         by simp
     next
       show "getTokenWithdrawn (the (tokenDepositState contractsR tokenDepositAddress)) (hash2 (sender (message caller 0)) token) = False"
-        sorry
+      proof-
+        have "getTokenWithdrawn (the (tokenDepositState contractsC tokenDepositAddress)) (hash2 caller token) = False"
+          using reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close>]
+          using \<open>amount > 0 \<and> getTokenWithdrawn (the (tokenDepositState contractsBD tokenDepositAddress)) (hash2 caller token) = False\<close>
+          unfolding CANCEL_WD_steps_def CANCEL_fun_def
+          by auto
+        then show ?thesis
+          using reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF \<open>reachableFrom contractsC contractsR RELEASE_steps\<close>]
+          unfolding RELEASE_steps_def RELEASE_fun_def
+          by auto
+      qed
     qed
     then obtain contracts' where wwd: "callWithdrawWhileDead contractsR tokenDepositAddress (message caller 0) \<lparr>timestamp = 0\<rparr> token amount Proof = (Success, contracts')"
       by (metis prod.collapse)
@@ -902,144 +1043,80 @@ proof-
       unfolding amount_def
       by simp
 
-    interpret BD': BridgeDeadInitFirstUpdate where contractsBD=contracts' and stepsBD = "WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
-      sorry
-
-    have noDeposits:
-       "depositsTo tokenDepositAddress token caller BD'.stepsAllBD =
-        depositsTo tokenDepositAddress token caller stepsAllBD"
-    proof-
-      have "depositsTo tokenDepositAddress token caller [WITHDRAW_WD_step] = []"
-        unfolding WITHDRAW_WD_step_def
-        by simp
-      moreover
-      have "depositsTo tokenDepositAddress token caller RELEASE_steps = []"
-        unfolding RELEASE_steps_def RELEASE_fun_def
-        by (induction NRBurnSteps, auto)
-      moreover
-      have "depositsTo tokenDepositAddress token caller CANCEL_WD_steps = []"
-        unfolding CANCEL_WD_steps_def CANCEL_fun_def
-        by (induction NCDepositSteps, auto)
-      ultimately
-      show ?thesis
-        by (auto simp add: BD'.stepsAllBD_def stepsAllBD_def depositedAmountTo_def depositsTo_def)
+    have "reachableFrom contractsBD contracts' (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps)"
+        using \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close> wwd
+        by (meson reachableFromSingleton reachableFromTrans reachableFrom_step)
+    then interpret BD'': BridgeDead where contractsBD=contracts' and stepsBD = "WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
+      by (smt (verit) BridgeDead.intro BridgeDead_axioms_def InitUpdate_axioms LastUpdate_axioms append.assoc append_Cons bridgeDead deathStep notBridgeDead' reachableFromContractsBD reachableFromTrans stateRootNonZero)
+    interpret BD'': BridgeDeadInitFirstUpdate where contractsBD=contracts' and stepsBD = "WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps @ stepsBD"
+    proof
+      show "BD''.stepsAllBD \<noteq> [] \<and> last BD''.stepsAllBD = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+        using firstUpdate
+        unfolding stepsAllBD_def BD''.stepsAllBD_def
+        by auto
+    next
+    have "updatesNonZero (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps)"
+      unfolding WITHDRAW_WD_step_def CANCEL_WD_steps_def CANCEL_fun_def RELEASE_steps_def RELEASE_fun_def updatesNonZero_def
+      by auto
+    then show "updatesNonZero BD''.stepsAllBD"
+      unfolding BD''.stepsAllBD_def
+      using updatesNonZeroInit
+      unfolding BD'.stepsAllBD_def stepsAllBD_def
+      by (simp add: updatesNonZero_def)
     qed
 
     show ?thesis
     proof (rule_tac x="contracts'" in exI, rule_tac x="WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps" in exI, safe)
       show "reachableFrom contractsBD contracts' (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps)"
-        using \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close> wwd
-        by (meson reachableFromSingleton reachableFromTrans reachableFrom_step)
+        by fact
     next
       show "paidBackAmountFrom tokenDepositAddress token caller (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps) + W + Z =
             X + Y"
       proof-
         have "paidBackAmountFrom tokenDepositAddress token caller (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps) + W = 
-              paidBackAmountFrom tokenDepositAddress token caller BD'.stepsAllBD"
+              paidBackAmountFrom tokenDepositAddress token caller BD''.stepsAllBD"
           using W[symmetric]
-          unfolding BD'.stepsAllBD_def stepsAllBD_def
+          unfolding BD''.stepsAllBD_def stepsAllBD_def
           by (metis append.assoc append_Cons paidBackAmountFromAppend)
         moreover
         have "nonWithdrawnBalanceBefore tokenDepositAddress bridgeAddress caller token contractsLastUpdate' contracts' = 0"
           using executeStepNonWithdrawnBalanceBeforeAfter[where msg="message caller 0"]
           by (metis WITHDRAW_WD_step_def executeStep.simps(8) reachableFromSingleton senderMessage wwd)
         moreover
-        have "nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsInit  BD'.stepsAllBD = 0"
-        proof-
-          have "\<forall> step \<in> set (depositsTo tokenDepositAddress token caller stepsAllBD). 
-               \<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit \<longrightarrow>
-               isCanceledID tokenDepositAddress token (DEPOSIT_id step) BD'.stepsAllBD"
-          proof safe
-            fix step
-            assume *: "step \<in> set (depositsTo tokenDepositAddress token caller stepsAllBD)"
-                      "\<not> isClaimedID bridgeAddress token (DEPOSIT_id step) stepsInit"
-            show "isCanceledID tokenDepositAddress token (DEPOSIT_id step) BD'.stepsAllBD"
-            proof (cases "isCanceledID tokenDepositAddress token (DEPOSIT_id step) stepsAllBD")
-              case True
-              then show ?thesis
-                by (auto simp add: BD'.stepsAllBD_def stepsAllBD_def isCanceledID_def)
-            next
-              case False
-              then have "step \<in> set NCDepositSteps"
-                using *
-                unfolding NCDepositSteps_def nonClaimedBeforeNonCanceledDepositsTo_def
-                by auto
-              then have "isCanceledID tokenDepositAddress token (DEPOSIT_id step) CANCEL_WD_steps"
-                unfolding isCanceledID_def CANCEL_WD_steps_def CANCEL_fun_def
-                by auto
-              then show ?thesis
-                unfolding BD'.stepsAllBD_def
-                by (auto simp add: isCanceledID_def)
-            qed
-          qed
-          then have "nonClaimedBeforeNonCanceledDepositsTo tokenDepositAddress bridgeAddress token caller stepsInit BD'.stepsAllBD = []"
-            using noDeposits
-            unfolding nonClaimedBeforeNonCanceledDepositsTo_def
-            by (metis (no_types, lifting) filter_False)
-          then show ?thesis
-            by (simp add: nonClaimedBeforeNonCanceledDepositsAmountTo_def)
-        qed
+        have "nonClaimedBeforeNonCanceledDepositsTo tokenDepositAddress bridgeAddress token caller stepsInit
+             (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps @ stepsAllBD) = []"
+          using allCanceled unfolding WITHDRAW_WD_step_def
+          by simp
+        then have "nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsInit  BD''.stepsAllBD = 0"
+          unfolding BD''.stepsAllBD_def stepsAllBD_def
+          by (simp add: nonClaimedBeforeNonCanceledDepositsAmountTo_def)
         moreover
-        have "nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsInit BD'.stepsAllBD = 0"
-        proof-
-          have "nonReleasedBurnsTo tokenDepositAddress bridgeAddress token caller stepsInit BD'.stepsAllBD = []"
-          proof-
-            have "\<forall> step \<in> set (burnsTo bridgeAddress token caller stepsInit). isReleasedID tokenDepositAddress token (BURN_id step) BD'.stepsAllBD"
-            proof safe
-              fix step
-              assume "step \<in> set (burnsTo bridgeAddress token caller stepsInit)"
-              show "isReleasedID tokenDepositAddress token (BURN_id step) BD'.stepsAllBD"
-              proof (cases "isReleasedID tokenDepositAddress token (BURN_id step) stepsAllBD")
-                case True
-                then show ?thesis
-                  by (auto simp add: BD'.stepsAllBD_def stepsAllBD_def isReleasedID_def)
-              next
-                case False
-                then have "step \<in> set NRBurnSteps"
-                  using \<open>step \<in> set (burnsTo bridgeAddress token caller stepsInit)\<close>
-                  unfolding NRBurnSteps_def nonReleasedBurnsTo_def
-                  by auto
-                then have "isReleasedID tokenDepositAddress token (BURN_id step) (RELEASE_steps)"
-                  unfolding RELEASE_steps_def RELEASE_fun_def isReleasedID_def
-                  by auto
-                then show ?thesis
-                  unfolding isReleasedID_def BD'.stepsAllBD_def
-                  by auto
-              qed
-            qed
-            then show ?thesis
-              unfolding nonReleasedBurnsTo_def
-              by auto
-          qed
-          then show ?thesis
-            unfolding nonReleasedBurnedAmountTo_def
-            by simp
-        qed
+        have "nonReleasedBurnsTo tokenDepositAddress bridgeAddress token caller stepsInit
+              (WITHDRAW_WD_step # RELEASE_steps @ CANCEL_WD_steps @ stepsBD @ [stepDeath] @ stepsNoUpdate @ [UPDATE_step] @ stepsInit) = []"
+          using allReleased
+          unfolding WITHDRAW_WD_step_def
+          unfolding stepsAllBD_def
+          by simp
+        then have "nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsInit BD''.stepsAllBD = 0"
+          unfolding nonReleasedBurnedAmountTo_def BD''.stepsAllBD_def stepsAllBD_def
+          by simp
         moreover
         have "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
           by (metis assms(1) assms(2) finiteBalances_def mintedTokenITDB properTokenFiniteBalancesMinted totalBalanceZero)
         moreover
-        have "depositedAmountTo tokenDepositAddress token caller BD'.stepsAllBD =
+        have "depositedAmountTo tokenDepositAddress token caller BD''.stepsAllBD =
               depositedAmountTo tokenDepositAddress token caller stepsAllBD"
         proof-
           have "depositedAmountTo tokenDepositAddress token caller [WITHDRAW_WD_step] = 0"
             unfolding WITHDRAW_WD_step_def
             by simp
-          moreover
-          have "depositedAmountTo tokenDepositAddress token caller RELEASE_steps = 0"
-            unfolding RELEASE_steps_def RELEASE_fun_def
-            by (induction NRBurnSteps, auto)
-          moreover
-          have "depositedAmountTo tokenDepositAddress token caller CANCEL_WD_steps = 0"
-            unfolding CANCEL_WD_steps_def CANCEL_fun_def
-            by (induction NCDepositSteps, auto)
-          ultimately
-          show ?thesis
-            by (auto simp add: BD'.stepsAllBD_def stepsAllBD_def depositedAmountTo_def depositsTo_def)
+          then show ?thesis
+            using noDeposits
+            by (auto simp add: BD''.stepsAllBD_def stepsAllBD_def depositedAmountTo_def depositsTo_def)
         qed
         ultimately
         show ?thesis
-          using BD'.accountBalanceInvariant[OF assms(1), of caller] 
+          using BD''.userTokensInvariant[OF assms(1), of caller] 
           using X Y Z W pbC pbR
           by (simp add: paidBackAmountFrom_def)
       qed
@@ -1051,14 +1128,49 @@ proof-
     qed
   next
     case False
+
+    have r: "reachableFrom contractsBD contractsR (RELEASE_steps @ CANCEL_WD_steps)"
+     using \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close>
+     by (meson reachableFromTrans reachableFrom_step)
+
     show ?thesis
     proof (rule_tac x=contractsR in exI, rule_tac x=" RELEASE_steps @ CANCEL_WD_steps" in exI, safe)
       show "reachableFrom contractsBD contractsR (RELEASE_steps @ CANCEL_WD_steps)"
-        using \<open>reachableFrom contractsBD contractsC CANCEL_WD_steps\<close> \<open>reachableFrom contractsC contractsR RELEASE_steps\<close>
-        by (meson reachableFromTrans reachableFrom_step)
+        by fact
     next
-      show "paidBackAmountTo tokenDepositAddress token caller (RELEASE_steps @ CANCEL_WD_steps) + Z + W = X + Y"
-        sorry
+      show "paidBackAmountFrom tokenDepositAddress token caller (RELEASE_steps @ CANCEL_WD_steps) + W + Z = X + Y"
+      proof-
+        have "paidBackAmountFrom tokenDepositAddress token caller (RELEASE_steps @ CANCEL_WD_steps) + W = 
+              paidBackAmountFrom tokenDepositAddress token caller BD'.stepsAllBD"
+          using W[symmetric]
+          unfolding BD'.stepsAllBD_def stepsAllBD_def
+          by (metis append.assoc append_Cons paidBackAmountFromAppend)
+        moreover
+        have "nonWithdrawnBalanceBefore tokenDepositAddress bridgeAddress caller token contractsLastUpdate' contractsR = 0"
+          using False reachableFromGetTokenWithdrawn[OF r]
+          unfolding amount_def nonWithdrawnBalanceBefore_def
+          by auto
+        moreover
+        have "nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsInit  BD'.stepsAllBD = 0"
+          using allCanceled 
+          unfolding BD'.stepsAllBD_def stepsAllBD_def
+          by (simp add: nonClaimedBeforeNonCanceledDepositsAmountTo_def)
+        moreover
+        have "nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsInit BD'.stepsAllBD = 0"
+          using allReleased
+          unfolding nonReleasedBurnedAmountTo_def BD'.stepsAllBD_def stepsAllBD_def
+          by simp
+        moreover
+        have "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
+          by (metis assms(1) assms(2) finiteBalances_def mintedTokenITDB properTokenFiniteBalancesMinted totalBalanceZero)
+        ultimately
+        show ?thesis
+          using noDeposits
+          using BD.userTokensInvariant[OF assms(1), of caller] 
+          using X Y Z W pbC pbR
+          unfolding BD'.stepsAllBD_def stepsAllBD_def
+          by (simp add: paidBackAmountFrom_def depositedAmountTo_def)
+      qed
     next
       fix stateRoot
       show "UPDATE (stateOracleAddressTD contractsInit tokenDepositAddress) stateRoot \<in> set (RELEASE_steps @ CANCEL_WD_steps) \<Longrightarrow> False"
@@ -1066,9 +1178,6 @@ proof-
         by auto
     qed
   qed
- qed
-
-
 qed
 
 end

@@ -151,6 +151,8 @@ locale Init' = StrongHashProofVerifier +
     "\<And> ID. getDeposit (the (tokenDepositState contractsInit tokenDepositAddress)) ID = 0"
   assumes tokenWithdrawnEmpty [simp]: 
     "\<And> H. getTokenWithdrawn (the (tokenDepositState contractsInit tokenDepositAddress)) H = False"
+  assumes releasesEmpty [simp]: 
+    "\<And> ID. getRelease (the (tokenDepositState contractsInit tokenDepositAddress)) ID = False"
   assumes claimsEmpty [simp]:
     "\<And> ID. getClaim (the (bridgeState contractsInit bridgeAddress)) ID = False"
   assumes withdrawalsEmpty [simp]: 
