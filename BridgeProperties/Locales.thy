@@ -135,8 +135,7 @@ end
 (*
    contractsInit
    properSetup
-   getDeposit=0
-   lastStateB=0
+   <empty>
 *)
 
 locale Init' = StrongHashProofVerifier + 
@@ -216,8 +215,7 @@ end
                   [stepsI]
    contractsInit      \<rightarrow>*       contractsI
    properSetup
-   getDeposit=0
-   lastStateB=0
+   <empty>
 *)
 locale Init = Init' + 
   fixes contractsI :: Contracts
@@ -306,12 +304,26 @@ lemma reachableFromInitLastUpdate [simp]:
     by (meson reachableFromSingleton reachableFrom_step)
 end
 
-sublocale InitUpdate \<subseteq> InitUpdate: Init where contractsI=contractsUpdate and stepsInit="UPDATE_step # stepsInit"
+sublocale InitUpdate \<subseteq> Init_Update: Init where contractsI=contractsUpdate and stepsInit="UPDATE_step # stepsInit"
   by (unfold_locales, simp)
 
 
 (* ------------------------------------------------------------------------------------ *)
+(*
+               stepsInit                     update                    [stepsNoUpdate]             
+contractsInit    \<rightarrow>*   contractsLastUpdate'    \<rightarrow>   contractsLastUpdate      \<rightarrow>*    contractsLU
+properSetup             properSetup                                     noUpdates                  
+*)
 locale InitLastUpdate = Init where contractsI=contractsLastUpdate' + LastUpdate
+
+sublocale InitLastUpdate \<subseteq> Init_LastUpdate: Init where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
+  using reachableFromInitI update
+  using executeStep.simps(6) reachableFrom_step
+  unfolding UPDATE_step_def
+  using Init'_axioms Init_axioms_def Init_def by presburger
+
+sublocale InitLastUpdate \<subseteq> Init_LU: Init where contractsI=contractsLU and stepsInit="stepsNoUpdate @ [UPDATE_step] @ stepsInit"
+  by (smt (verit) Cons_eq_append_conv Init'_axioms Init.intro Init_LastUpdate.reachableFromInitI Init_axioms.intro reachableFrom.cases reachableFromInitI reachableFromLastUpdateLU reachableFromTrans)
 
 (* ------------------------------------------------------------------------------------ *)
 
@@ -319,8 +331,7 @@ locale InitLastUpdate = Init where contractsI=contractsLastUpdate' + LastUpdate
                   [stepsI]
    contractsInit      \<rightarrow>*       contractsI
    properSetup    _ @ [UPDATE]
-   getDeposit=0
-   lastStateB=0
+   <empty>
 *)
 locale InitFirstUpdate = Init + 
   fixes stateRootInit :: "bytes32"
@@ -373,6 +384,14 @@ lemma getLastStateBContractsUNonZero:
 end
 
 (* ------------------------------------------------------------------------------------ *)
+
+(*
+               stepsInit                     update                    [stepsNoUpdate]             
+contractsInit    \<rightarrow>*   contractsLastUpdate'    \<rightarrow>   contractsLastUpdate      \<rightarrow>*    contractsLU
+properSetup           properSetup                                        noUpdates                  
+*)
+
+
 locale InitFirstUpdateLastUpdate = InitFirstUpdate where contractsI=contractsLastUpdate' + LastUpdate
 begin
 
@@ -385,11 +404,12 @@ lemma reachableFromInitLU [simp]:
 
 end
 
-sublocale InitFirstUpdateLastUpdate \<subseteq> IFLU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
+sublocale InitFirstUpdateLastUpdate \<subseteq> InitFirstUpdate_LastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
+  by (metis (full_types) Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_Cons append_Nil firstUpdate last_ConsR list.distinct(1) reachableFromInitI reachableFromTrans reachableFromUpdate'Update stateRootInitNonZero)
+
+sublocale InitFirstUpdateLastUpdate \<subseteq> InitFirstUpdate_LU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
   by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stateRootInitNonZero stepsAllLU_def)
 
-sublocale InitFirstUpdateLastUpdate \<subseteq> IFLastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
-  by (metis (full_types) Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_Cons append_Nil firstUpdate last_ConsR list.distinct(1) reachableFromInitI reachableFromTrans reachableFromUpdate'Update stateRootInitNonZero)
 
 (* ------------------------------------------------------------------------------------ *)
 
@@ -493,10 +513,9 @@ lemma reachableFromInitLVS [simp]:
 
 end
 
-sublocale InitUpdateBridgeNotDeadLastValidState \<subseteq> InitLVS: Init where contractsI=contractsLVS and stepsInit="stepsAllLVS"
+sublocale InitUpdateBridgeNotDeadLastValidState \<subseteq> Init_LVS: Init where contractsI=contractsLVS and stepsInit="stepsAllLVS"
   using reachableFromInitLVS 
   by unfold_locales auto
-
 
 (*
                [stepsInit]                  update                  [stepsNoUpdate]               stepDeath               stepsBD
@@ -551,7 +570,7 @@ lemma stepDeathNoUpdate [simp]:
 lemma getLastStateBLastUpdate [simp]:
   shows "lastStateB contractsLastUpdate bridgeAddress = stateRoot"
   using callUpdateLastState update 
-  by (metis InitUpdate.stateOracleAddressBI stateOracleAddressBI)
+  by (metis Init_Update.stateOracleAddressBI stateOracleAddressBI)
 
 lemma deadStateContractsDead [simp]: 
   shows "deadStateTD contractsDead tokenDepositAddress = stateRoot"
@@ -564,25 +583,25 @@ lemma deadStateContractsBD [simp]:
 
 end
 
-sublocale BridgeDead \<subseteq> InitDead': Init where contractsI=contractsDead' and stepsInit=stepsBeforeDeath
+sublocale BridgeDead \<subseteq> Init_Dead': Init where contractsI=contractsDead' and stepsInit=stepsBeforeDeath
 proof
   show "reachableFrom contractsInit contractsDead' stepsBeforeDeath"
     using reachableFromInitI reachableFromLastUpdateLU reachableFromTrans reachableFromUpdate'Update stepsBeforeDeath_def
     by presburger
 qed
 
-sublocale BridgeDead \<subseteq> InitDead: Init where contractsI=contractsDead and stepsInit="[stepDeath] @ stepsBeforeDeath"
+sublocale BridgeDead \<subseteq> Init_Dead: Init where contractsI=contractsDead and stepsInit="[stepDeath] @ stepsBeforeDeath"
 proof
   show "reachableFrom contractsInit contractsDead  ([stepDeath] @ stepsBeforeDeath)"
-    using InitDead'.reachableFromInitI deathStep reachableFromTrans 
+    using Init_Dead'.reachableFromInitI deathStep reachableFromTrans 
     by blast
 qed
 
-sublocale BridgeDead \<subseteq> InitBD: Init where contractsI=contractsBD and stepsInit=stepsAllBD
+sublocale BridgeDead \<subseteq> Init_BD: Init where contractsI=contractsBD and stepsInit=stepsAllBD
 proof
   show "reachableFrom contractsInit contractsBD stepsAllBD"
     unfolding stepsAllBD_def
-    by (metis InitDead.reachableFromInitI reachableFromContractsBD reachableFromTrans stepsBeforeDeath_def)
+    by (metis Init_Dead.reachableFromInitI reachableFromContractsBD reachableFromTrans stepsBeforeDeath_def)
 qed
 
 sublocale BridgeDead \<subseteq> LastUpdateBridgeNotDead where contractsLU=contractsDead'
@@ -591,7 +610,7 @@ proof
     using notBridgeDeadContractsLastUpdate' by blast
 qed
 
-sublocale BridgeDead \<subseteq> LVSDead': InitUpdateBridgeNotDeadLastValidState where
+sublocale BridgeDead \<subseteq> InitUpdateBridgeNotDeadLastValidState_Dead': InitUpdateBridgeNotDeadLastValidState where
   contractsUpdate=contractsLastUpdate and 
   contractsUpdate'=contractsLastUpdate' and 
   blockUpdate=blockLastUpdate and 
@@ -608,7 +627,7 @@ next
     by simp
 qed simp_all
 
-sublocale BridgeDead \<subseteq> LVSDead: InitUpdateBridgeNotDeadLastValidState where
+sublocale BridgeDead \<subseteq> InitUpdateBridgeNotDeadLastValidState_Dead: InitUpdateBridgeNotDeadLastValidState where
   contractsUpdate=contractsLastUpdate and 
   contractsUpdate'=contractsLastUpdate' and 
   blockUpdate=blockLastUpdate and 
@@ -624,7 +643,7 @@ next
     by simp
 qed simp_all
 
-sublocale BridgeDead \<subseteq> LVSBD: InitUpdateBridgeNotDeadLastValidState where 
+sublocale BridgeDead \<subseteq> InitUpdateBridgeNotDeadLastValidState_BD: InitUpdateBridgeNotDeadLastValidState where 
   contractsUpdate=contractsLastUpdate and 
   contractsUpdate'=contractsLastUpdate' and 
   blockUpdate=blockLastUpdate and 
@@ -644,6 +663,20 @@ next
     using bridgeDeadContractsBD deadStateContractsBD lastValidState_def by presburger
 qed
 
+(* ------------------------------------------------------------------------------------ *)
+
 locale BridgeDeadInitFirstUpdate = BridgeDead + InitFirstUpdate where contractsI=contractsBD and stepsInit=stepsAllBD
+
+sublocale BridgeDeadInitFirstUpdate \<subseteq> InitFirstUpdate_LastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
+  by (metis InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_Update.Init_axioms append_Cons firstUpdate last_append list.simps(3) self_append_conv2 stateRootInitNonZero stepsAllBD_def)
+
+sublocale BridgeDeadInitFirstUpdate \<subseteq> InitFirstUpdate_Dead': InitFirstUpdate where contractsI=contractsDead' and stepsInit="stepsBeforeDeath"
+  using InitFirstUpdate_LastUpdate.firstUpdate InitFirstUpdate_axioms_def InitFirstUpdate_def Init_Dead'.Init_axioms Nil_is_append_conv append_Cons last_append self_append_conv2 stateRootInitNonZero stepsBeforeDeath_def
+  by auto
+
+sublocale BridgeDeadInitFirstUpdate \<subseteq> InitFirstUpdate_Dead: InitFirstUpdate where contractsI=contractsDead and stepsInit="stepDeath # stepsBeforeDeath"
+  by (metis InitFirstUpdate.intro InitFirstUpdate_Dead'.firstUpdate InitFirstUpdate_axioms_def InitUpdateBridgeNotDeadLastValidState_Dead.Init_LVS.Init_axioms InitUpdateBridgeNotDeadLastValidState_Dead.stepsAllLVS_def append_Cons last_ConsR list.distinct(1) stateRootInitNonZero stepsBeforeDeath_def)
+
+(* ------------------------------------------------------------------------------------ *)
 
 end

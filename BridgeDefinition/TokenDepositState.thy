@@ -930,6 +930,15 @@ lemma callWithdrawWhileDeadNotTokenWithdrawn [simp]:
   unfolding callWithdrawWhileDead_def withdrawWhileDead_def
   by (auto simp add: Let_def lookupBool_def lookup_default_update split: option.splits prod.splits if_split_asm)
 
+lemma callWithdrawWhileDeadGetTokenWithdrawnOtherHash:
+  assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
+  assumes "h \<noteq> hash2 (sender msg) token"
+  shows "getTokenWithdrawnTD contracts' address h = 
+         getTokenWithdrawnTD contracts address h"
+  using assms
+  unfolding callWithdrawWhileDead_def withdrawWhileDead_def
+  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
+
 lemma callWithdrawWhileDeadReleases [simp]:
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
   shows "releases (the (tokenDepositState contracts' address')) = 
@@ -1074,6 +1083,7 @@ lemma callWithdrawWhileDeadLastValidStateTD [simp]:
          lastValidStateTD contracts address'"
   using assms
   by (smt (verit, ccfv_threshold) HashProofVerifier.callWithdrawWhileDeadIStateOracle HashProofVerifier_axioms callLastState_def callWithdrawWhileDeadBridgeDead callWithdrawWhileDeadInDeadState callWithdrawWhileDeadOtherAddress callWithdrawWhileDeadSetsDeadState' lastValidState_def)
+
 
 lemma callWithdrawWhileDeadI:
   assumes "tokenDepositState contracts tokenDepositAddress \<noteq> None"

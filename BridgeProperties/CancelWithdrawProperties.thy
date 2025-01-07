@@ -79,20 +79,6 @@ qed
 
 end
 
-context HashProofVerifier
-begin
-
-(* FIXME: move *)
-lemma callWithdrawWhileDeadGetTokenWithdrawnOtherHash:
-  assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
-  assumes "h \<noteq> hash2 (sender msg) token"
-  shows "getTokenWithdrawnTD contracts' address h = 
-         getTokenWithdrawnTD contracts address h"
-  using assms
-  unfolding callWithdrawWhileDead_def withdrawWhileDead_def
-  by (auto simp add: Let_def split: option.splits prod.splits if_split_asm)
-
-end
 
 context StrongHashProofVerifier
 begin
@@ -483,6 +469,46 @@ lemma getTokenWithdrawnNotBridgeDead:
   using tokenWithdrawnEmpty reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF reachableFromInitI]
   using assms noWithdrawBeforeBridgeDead reachableFromInitI
   by blast
+end
+
+
+context StrongHashProofVerifier
+begin
+
+lemma nonCanceledDepositGetDeposit:
+  assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
+  assumes "\<nexists>caller amount proof. CANCEL_WD tokenDepositAddress caller ID token amount proof \<in> set steps"
+  assumes "reachableFrom contracts contracts' steps"
+  shows "getDepositTD contracts' tokenDepositAddress ID = hash3 caller token amount"
+  using assms
+proof-
+  have *: "\<nexists>caller amount proof token'. CANCEL_WD tokenDepositAddress caller ID token' amount proof \<in> set steps"
+  proof (rule ccontr)
+    assume "\<not> ?thesis"
+    then obtain caller' amount' proof' token' where "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof' \<in> set steps"
+      by auto
+    moreover
+    have "token = token'"
+      using onlyDepositorCanCancelSteps(2)
+      using assms(1) assms(3) calculation by blast
+    ultimately show False
+      using assms
+      by auto
+  qed
+  obtain steps1 steps2 where
+  "steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2"
+    using assms
+    using reachableFromStepInSteps by blast
+  then obtain contractsD where 
+    "reachableFrom contractsD contracts' steps1"
+    "getDepositTD contractsD tokenDepositAddress ID = 
+     hash3 caller token amount"
+    by (smt (verit, ccfv_threshold) DEPOSITNoDouble' HashProofVerifier.executeStep.simps(1) HashProofVerifier_axioms Un_iff append_Cons append_Cons_eq_iff assms(1) assms(3) callDepositWritesHash reachableFromStepInSteps self_append_conv2 senderMessage set_append)
+  then show ?thesis
+    using hash3_nonzero[of caller token amount] *
+    by (simp add: \<open>steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2\<close> reachableFromGetDepositBridgeNoCancel)
+qed
+
 end
 
 end

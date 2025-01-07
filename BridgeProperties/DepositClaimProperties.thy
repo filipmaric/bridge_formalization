@@ -5,7 +5,7 @@ begin
 context HashProofVerifier
 begin
 
-text \<open>Once written deposit hash can be unset only by a CANCEL_WD step\<close>
+text \<open>Once written deposit hash can be unset only by a @{term "CANCEL_WD"} step\<close>
 lemma reachableFromGetDepositBridgeNoCancel:
   assumes "reachableFrom contracts contracts' steps"
   assumes "getDepositTD contracts tokenDepositAddress ID \<noteq> 0"
@@ -38,7 +38,7 @@ next
   qed auto
 qed
 
-text \<open>If the bridge is not dead, there was no CANCEL_WD step\<close>
+text \<open>If the bridge is not dead, there was no @{term "CANCEL_WD"} step\<close>
 lemma reachableFromNotBridgeDeadNoCancel:
   assumes "reachableFrom contracts contracts' steps"
   assumes "\<not> bridgeDead contracts' tokenDepositAddress"
@@ -949,5 +949,6 @@ proof-
 qed
 
 end
+
 
 end
