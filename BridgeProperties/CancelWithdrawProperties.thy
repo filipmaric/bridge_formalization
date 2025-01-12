@@ -6,55 +6,55 @@ context HashProofVerifier
 begin
 
 \<comment> \<open>Once set tokenWithdrawn flag cannot be unset\<close>
-lemma reachableFromGetTokenWithdrawn:
-  assumes "reachableFrom contracts contracts' steps"
+lemma reachableGetTokenWithdrawn:
+  assumes "reachable contracts contracts' steps"
   assumes "getTokenWithdrawnTD contracts address h = True"
   shows "getTokenWithdrawnTD contracts' address h = True"
   using assms
-proof (induction contracts contracts' steps rule: reachableFrom.induct)
-  case (reachableFrom_base contracts)
+proof (induction contracts contracts' steps rule: reachable.induct)
+  case (reachable_base contracts)
   then show ?case
     by simp
 next
-  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  case (reachable_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
   proof (cases step)
     case (WITHDRAW_WD address' caller' token' amount' proof')
     then show ?thesis
-      using reachableFrom_step
+      using reachable_step
       using callWithdrawWhileDeadTokenWithdrawn'
       by (metis executeStep.simps(8))
   qed auto
 qed
 
-lemma reachableFromGetTokenWithdrawnNoWithdraw:
-  assumes "reachableFrom contracts contracts' steps"
+lemma reachableGetTokenWithdrawnNoWithdraw:
+  assumes "reachable contracts contracts' steps"
   assumes "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = False"
   shows "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
   using assms
 proof (induction contracts contracts' steps)
-  case (reachableFrom_base contracts)
+  case (reachable_base contracts)
   then show ?case
     by simp
 next
-  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  case (reachable_step steps contracts'' contracts contracts' blockNum block step)
   have "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = False"
-    using reachableFrom_step.prems reachableFrom_step.hyps 
+    using reachable_step.prems reachable_step.hyps 
   proof (cases step)
     case (WITHDRAW_WD address' caller' token' amount' proof')
     then show ?thesis
-      using reachableFrom_step.prems reachableFrom_step.hyps 
+      using reachable_step.prems reachable_step.hyps 
       using callWithdrawWhileDeadTokenWithdrawn'
       by (metis executeStep.simps(8))
   qed auto
   then have *: "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
-    using reachableFrom_step.IH
+    using reachable_step.IH
     by blast
   show ?case
   proof (cases "\<nexists> address' token' caller' amount' proof'. WITHDRAW_WD address' caller' token' amount' proof' = step")
     case True
     then show ?thesis
-      using reachableFrom_step.hyps *
+      using reachable_step.hyps *
       by (cases step, auto)
   next
     case False
@@ -65,12 +65,12 @@ next
     proof (cases "address' = tokenDepositAddress \<and> token' = token \<and> caller' = caller")
       case False
       then show ?thesis
-        using step reachableFrom_step.hyps *
+        using step reachable_step.hyps *
         by auto
     next
       case True
       then show ?thesis
-        using reachableFrom_step.hyps step reachableFrom_step.prems
+        using reachable_step.hyps step reachable_step.prems
         using callWithdrawWhileDeadTokenWithdrawn[where msg="message caller 0"]
         by simp
     qed
@@ -83,18 +83,18 @@ end
 context StrongHashProofVerifier
 begin
 
-lemma reachableFromGetTokenWithdrawnNoWithdrawNoChange:
-  assumes "reachableFrom contracts contracts' steps"
+lemma reachableGetTokenWithdrawnNoWithdrawNoChange:
+  assumes "reachable contracts contracts' steps"
   assumes "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress caller token amount proof \<in> set steps"
   shows "getTokenWithdrawnTD contracts' tokenDepositAddress (hash2 caller token) = 
          getTokenWithdrawnTD contracts tokenDepositAddress (hash2 caller token)"
   using assms
 proof (induction contracts contracts' steps)
-  case (reachableFrom_base contracts)
+  case (reachable_base contracts)
   then show ?case
     by simp
 next
-  case (reachableFrom_step steps contracts'' contracts contracts' blockNum block step)
+  case (reachable_step steps contracts'' contracts contracts' blockNum block step)
   then show ?case
   proof (cases step)
     case (WITHDRAW_WD address' caller' token' amount' proof')
@@ -102,7 +102,7 @@ next
     proof (cases "address' = tokenDepositAddress \<and> token' = token \<and> caller' = caller")
       case True
       then have False
-        using WITHDRAW_WD reachableFrom_step.prems
+        using WITHDRAW_WD reachable_step.prems
         by auto
       then show ?thesis
         by simp
@@ -112,7 +112,7 @@ next
       proof (cases "address' = tokenDepositAddress")
         case False
         then show ?thesis
-          using callWithdrawWhileDeadOtherAddress WITHDRAW_WD reachableFrom_step
+          using callWithdrawWhileDeadOtherAddress WITHDRAW_WD reachable_step
           by (metis executeStep.simps(8) list.set_intros(2))
       next
         case True
@@ -121,7 +121,7 @@ next
           unfolding hash2_inj_def
           by blast
         then show ?thesis
-          using True WITHDRAW_WD reachableFrom_step
+          using True WITHDRAW_WD reachable_step
           using callWithdrawWhileDeadGetTokenWithdrawnOtherHash
           by (metis executeStep.simps(8) list.set_intros(2) senderMessage)
       qed
@@ -138,42 +138,42 @@ begin
 
 text \<open>No cancel before the bridge dies\<close>
 lemma noCancelBeforeBridgeDead:
-  assumes "reachableFrom contractsInit contracts steps"
+  assumes "reachable contractsInit contracts steps"
           "\<not> bridgeDead contracts tokenDepositAddress"
   shows "\<nexists> step. step \<in> set steps \<and> (\<exists> caller ID token amount proof. step = CANCEL_WD tokenDepositAddress caller ID token amount proof)"
   using assms
-proof (induction contractsInit contracts steps rule: reachableFrom.induct)
-  case (reachableFrom_base contracts)
+proof (induction contractsInit contracts steps rule: reachable.induct)
+  case (reachable_base contracts)
   then show ?case
     by simp
 next
-  case (reachableFrom_step steps contracts' contractsInit contracts blockNum block step)
+  case (reachable_step steps contracts' contractsInit contracts blockNum block step)
   have notDead: "\<not> bridgeDead contracts tokenDepositAddress"
-    using reachableFrom.reachableFrom_step reachableFromBridgeDead reachableFrom_base reachableFrom_step.hyps(2) reachableFrom_step.prems
+    using reachable.reachable_step reachableBridgeDead reachable_base reachable_step.hyps(2) reachable_step.prems
     by blast
   then show ?case
-    using reachableFrom_step callCancelDepositWhileDeadBridgeDead
+    using reachable_step callCancelDepositWhileDeadBridgeDead
     by (metis executeStep.simps(7) set_ConsD)
 qed
 
 
 text \<open>No withdraw before the bridge dies\<close>
 lemma noWithdrawBeforeBridgeDead:
-  assumes "reachableFrom contractsInit contracts steps"
+  assumes "reachable contractsInit contracts steps"
           "\<not> bridgeDead contracts tokenDepositAddress"
   shows "\<nexists> step. step \<in> set steps \<and> (\<exists> caller token amount proof. step = WITHDRAW_WD tokenDepositAddress caller token amount proof)"
   using assms
-proof (induction contractsInit contracts steps rule: reachableFrom.induct)
-  case (reachableFrom_base contracts)
+proof (induction contractsInit contracts steps rule: reachable.induct)
+  case (reachable_base contracts)
   then show ?case
     by simp
 next
-  case (reachableFrom_step steps contracts' contractsInit contracts blockNum block step)
+  case (reachable_step steps contracts' contractsInit contracts blockNum block step)
   have notDead: "\<not> bridgeDead contracts tokenDepositAddress"
-    using reachableFrom.reachableFrom_step reachableFromBridgeDead reachableFrom_base reachableFrom_step.hyps(2) reachableFrom_step.prems
+    using reachable.reachable_step reachableBridgeDead reachable_base reachable_step.hyps(2) reachable_step.prems
     by blast
   then show ?case
-    using reachableFrom_step callWithdrawWhileDeadBridgeDead
+    using reachable_step callWithdrawWhileDeadBridgeDead
     by (metis executeStep.simps(8) set_ConsD)
 qed
 
@@ -185,7 +185,7 @@ begin
 text \<open>There are no double cancels\<close>
 theorem callCancelNoDouble:
   assumes "callCancelDepositWhileDead contracts address msg block ID token amount proof = (Success, contracts')"
-  assumes "reachableFrom contracts' contracts'' steps"
+  assumes "reachable contracts' contracts'' steps"
   shows "fst (callCancelDepositWhileDead contracts'' address msg' block' ID token' amount' proof') \<noteq> Success"
 proof-
   have "getDepositTD contracts' address ID = 0"
@@ -196,7 +196,7 @@ proof-
     using callCancelDepositWhileDeadBridgeDead assms(1)
     by simp
   ultimately have "getDepositTD contracts'' address ID = 0"
-    using `reachableFrom contracts' contracts'' steps` reachableFromGetDepositBridgeDead 
+    using `reachable contracts' contracts'' steps` reachableGetDepositBridgeDead 
     by blast
   then show ?thesis
     using callCancelDepositWhileDeadGetDepositNonzero assms
@@ -210,7 +210,7 @@ begin
 
 lemma callWithdrawWhileDeadNoDouble:
   assumes "callWithdrawWhileDead contracts address msg block token amount proof = (Success, contracts')"
-  assumes "reachableFrom contracts' contracts'' steps"
+  assumes "reachable contracts' contracts'' steps"
   shows "fst (callWithdrawWhileDead contracts'' address msg block' token amount' proof') \<noteq> Success"
 proof-
   have "getTokenWithdrawnTD contracts' address (hash2 (sender msg) token) = True"
@@ -218,7 +218,7 @@ proof-
     using callWithdrawWhileDeadTokenWithdrawn by blast
   then have "getTokenWithdrawnTD contracts'' address (hash2 (sender msg) token) = True"
     using assms
-    using reachableFromGetTokenWithdrawn by blast
+    using reachableGetTokenWithdrawn by blast
   then show ?thesis
     using callWithdrawWhileDeadNotTokenWithdrawn[of contracts'' address msg block' token amount' proof']
     by (metis prod.collapse)
@@ -233,17 +233,17 @@ begin
 text \<open>We want to prove that there cannot be two CANCEL steps with the same ID on the same tokenDeposit address\<close>
 
 lemma CANCELNoDoubleCons:
-  assumes "reachableFrom contracts contracts' (CANCEL_WD tokenDepositAddress caller ID token amount proof # steps)"
+  assumes "reachable contracts contracts' (CANCEL_WD tokenDepositAddress caller ID token amount proof # steps)"
   shows "\<nexists> token' caller' amount' proof'. CANCEL_WD tokenDepositAddress caller' ID token' amount' proof' \<in> set steps"
   using assms callCancelNoDouble 
-  by (smt (verit, ccfv_SIG) executeStep.simps(7)fst_conv reachableFromCons' reachableFromStepInSteps)
+  by (smt (verit, ccfv_SIG) executeStep.simps(7)fst_conv reachableCons' reachableStepInSteps)
 
 lemma CANCELNoDouble:
-  assumes "reachableFrom contracts contracts' steps"
+  assumes "reachable contracts contracts' steps"
   assumes "steps = steps1 @ [CANCEL_WD tokenDepositAddress caller ID token amount proof] @ steps2 @ [CANCEL_WD tokenDepositAddress caller' ID token' amount' proof'] @ steps3"
   shows False
   using assms
-  by (metis CANCELNoDoubleCons Un_iff append_Cons list.set_intros(1) reachableFromAppend set_append)
+  by (metis CANCELNoDoubleCons Un_iff append_Cons list.set_intros(1) reachableAppend set_append)
 
 end
 
@@ -251,39 +251,39 @@ context HashProofVerifier
 begin
 
 lemma noCancelBeforeDepositSteps:
-  assumes "reachableFrom contracts contracts' (steps1 @ [DEPOSIT tokenDepositAddress caller' ID token' amount'] @ steps @ [CANCEL_WD tokenDepositAddress caller ID token amount proof] @ steps2)"
+  assumes "reachable contracts contracts' (steps1 @ [DEPOSIT tokenDepositAddress caller' ID token' amount'] @ steps @ [CANCEL_WD tokenDepositAddress caller ID token amount proof] @ steps2)"
   shows False
 proof-
   obtain contractsA contractsB contracts1 contracts2 where
-   "reachableFrom contractsA contracts1 [CANCEL_WD tokenDepositAddress caller ID token amount proof]"
-   "reachableFrom contracts1 contracts2 steps"
-   "reachableFrom contracts2 contractsB [DEPOSIT tokenDepositAddress caller' ID token' amount']"
+   "reachable contractsA contracts1 [CANCEL_WD tokenDepositAddress caller ID token amount proof]"
+   "reachable contracts1 contracts2 steps"
+   "reachable contracts2 contractsB [DEPOSIT tokenDepositAddress caller' ID token' amount']"
     using assms
-    by (meson reachableFromAppend)
+    by (meson reachableAppend)
   then have "bridgeDead contracts1 tokenDepositAddress"
     by (meson list.set_intros(1) noCancelBeforeBridgeDead)
   then have "bridgeDead contracts2 tokenDepositAddress"
-    by (metis \<open>reachableFrom contracts1 contracts2 steps\<close> reachableFromDeadState)
+    by (metis \<open>reachable contracts1 contracts2 steps\<close> reachableDeadState)
   then show False
-    using \<open>reachableFrom contracts2 contractsB [DEPOSIT tokenDepositAddress caller' ID token' amount']\<close>
-    by (metis executeStep.simps(1)  callDepositNotBridgeDead' reachableFromBridgeDead reachableFromCons')
+    using \<open>reachable contracts2 contractsB [DEPOSIT tokenDepositAddress caller' ID token' amount']\<close>
+    by (metis executeStep.simps(1)  callDepositNotBridgeDead' reachableBridgeDead reachableCons')
 qed
 
 
 lemma noCancelBeforeDeposit:
   assumes CANCEL_in_steps: "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof' \<in> set stepsInit"
-  assumes reachableFromInitI: "reachableFrom contractsInit contractsI stepsInit"
-  assumes reach: "reachableFrom contractsI contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
+  assumes reachableInitI: "reachable contractsInit contractsI stepsInit"
+  assumes reach: "reachable contractsI contractsDeposit [DEPOSIT tokenDepositAddress caller ID token amount]"
   shows "False"
 proof-
   let ?CANCEL_step = "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof'"
   let ?DEPOSIT_step = "DEPOSIT tokenDepositAddress caller ID token amount"
   obtain steps1 steps2 where "stepsInit = steps1 @ [?CANCEL_step] @ steps2"
     using CANCEL_in_steps
-    using reachableFromInitI reachableFromStepInSteps 
+    using reachableInitI reachableStepInSteps 
     by blast
-  then have "reachableFrom contractsInit contractsDeposit ([] @ [?DEPOSIT_step] @ steps1 @ [?CANCEL_step] @ steps2 )"
-    using reach reachableFromInitI reachableFromTrans by fastforce
+  then have "reachable contractsInit contractsDeposit ([] @ [?DEPOSIT_step] @ steps1 @ [?CANCEL_step] @ steps2 )"
+    using reach reachableInitI reachableTrans by fastforce
   then show False
     using noCancelBeforeDepositSteps
     by blast
@@ -307,7 +307,7 @@ lemma callCancelDepositWhileDeadGetDepositBefore:
 lemma onlyDepositorCanCancel:
   assumes deposit: "callDeposit contractsD tokenDepositAddress block msg ID token amount = (Success, contractsD')"
   \<comment> \<open>after a while a  claim is made\<close>
-  assumes "reachableFrom contractsD' contractsC steps"
+  assumes "reachable contractsD' contractsC steps"
   assumes cancel: "callCancelDepositWhileDead contractsC tokenDepositAddress msg' block' ID token' amount' proof = (Success, contractsC')"
   shows "sender msg' = sender msg" "token' = token" "amount' = amount"
 proof-
@@ -322,7 +322,7 @@ proof-
   have "getDepositTD contractsC tokenDepositAddress ID = getDepositTD contractsD' tokenDepositAddress ID \<or>
         getDepositTD contractsC tokenDepositAddress ID = 0"
     using assms
-    by (metis reachableFromGetDeposit calculation(1) hash3_nonzero)
+    by (metis reachableGetDeposit calculation(1) hash3_nonzero)
   ultimately
   show "sender msg' = sender msg" "token' = token" "amount' = amount"
     using hash3_nonzero hash3_inj
@@ -330,7 +330,7 @@ proof-
 qed
 
 lemma onlyDepositorCanCancelSteps:
-  assumes "reachableFrom contracts contracts' steps"
+  assumes "reachable contracts contracts' steps"
   assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
   assumes "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof \<in> set steps"
   shows "caller' = caller" "token' = token" "amount' = amount"
@@ -339,7 +339,7 @@ proof-
   let ?CANCEL_step = "CANCEL_WD tokenDepositAddress caller' ID token' amount' proof"
   obtain steps1 steps2 where A: "steps = steps1 @ [?DEPOSIT_step] @ steps2"
     using assms
-    using reachableFromStepInSteps by blast
+    using reachableStepInSteps by blast
   have "?CANCEL_step \<notin> set steps2"
   proof (rule ccontr)
     assume "\<not> ?thesis"
@@ -356,13 +356,13 @@ proof-
   then obtain steps1' steps2' where B: "steps1 = steps1' @ [?CANCEL_step] @ steps2'"
     by (metis append_Cons eq_Nil_appendI split_list)
   then obtain contracts1 contracts2 contracts3 contracts4 where 
-    "reachableFrom contracts1 contracts2 [?DEPOSIT_step]"
-    "reachableFrom contracts2 contracts3 steps2'"
-    "reachableFrom contracts3 contracts4 [?CANCEL_step]"
+    "reachable contracts1 contracts2 [?DEPOSIT_step]"
+    "reachable contracts2 contracts3 steps2'"
+    "reachable contracts3 contracts4 [?CANCEL_step]"
     using A
-    by (metis assms(1) reachableFromAppend)
+    by (metis assms(1) reachableAppend)
   then have "caller' = caller \<and> token' = token \<and> amount' = amount"
-    using reachableFromSingleton onlyDepositorCanCancel
+    using reachableSingleton onlyDepositorCanCancel
     by (smt (verit, best) executeStep.simps(1) executeStep.simps(7) senderMessage)
   then show "caller' = caller" "token' = token" "amount' = amount"
     by auto
@@ -392,7 +392,7 @@ proof-
     unfolding callCancelDepositWhileDead_def cancelDepositWhileDead_def
     by (simp add: Let_def split: option.splits prod.splits if_split_asm)
   then show ?thesis
-    using assms getDepositWrittenOnlyByDeposit depositsEmpty reachableFromInitI
+    using assms getDepositWrittenOnlyByDeposit depositsEmpty reachableInitI
     by blast
 qed
 
@@ -413,7 +413,7 @@ proof (rule ccontr)
     *: "CLAIM bridgeAddress caller' ID token' amount' proof' \<in> set stepsInit"
     by auto
   then have "getClaimB contractsUpdate' bridgeAddress ID = True"
-    using claimStepSetsClaim reachableFromInitI
+    using claimStepSetsClaim reachableInitI
     by blast
 
   moreover
@@ -451,7 +451,7 @@ proof-
   then have "balanceOf (the (ERC20state contractsUpdate' ?mintedToken)) (sender msg) = amount"
     using assms
     using verifyBalanceProofE[of contractsUpdate' stateRoot]
-    by (smt (verit, ccfv_SIG) properSetup_def reachableFromERC20State generateStateRootUpdate' option.exhaust_sel properSetupInit properToken_def reachableFromInitI)
+    by (smt (verit, ccfv_SIG) properSetup_def reachableERC20State generateStateRootUpdate' option.exhaust_sel properSetupInit properToken_def reachableInitI)
   then show ?thesis
     using assms
     unfolding callBalanceOf_def
@@ -466,8 +466,8 @@ begin
 lemma getTokenWithdrawnNotBridgeDead:
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
   shows "getTokenWithdrawnTD contractsI tokenDepositAddress (hash2 caller token) = False"
-  using tokenWithdrawnEmpty reachableFromGetTokenWithdrawnNoWithdrawNoChange[OF reachableFromInitI]
-  using assms noWithdrawBeforeBridgeDead reachableFromInitI
+  using tokenWithdrawnEmpty reachableGetTokenWithdrawnNoWithdrawNoChange[OF reachableInitI]
+  using assms noWithdrawBeforeBridgeDead reachableInitI
   by blast
 end
 
@@ -478,7 +478,7 @@ begin
 lemma nonCanceledDepositGetDeposit:
   assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set steps"
   assumes "\<nexists>caller amount proof. CANCEL_WD tokenDepositAddress caller ID token amount proof \<in> set steps"
-  assumes "reachableFrom contracts contracts' steps"
+  assumes "reachable contracts contracts' steps"
   shows "getDepositTD contracts' tokenDepositAddress ID = hash3 caller token amount"
   using assms
 proof-
@@ -498,15 +498,15 @@ proof-
   obtain steps1 steps2 where
   "steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2"
     using assms
-    using reachableFromStepInSteps by blast
+    using reachableStepInSteps by blast
   then obtain contractsD where 
-    "reachableFrom contractsD contracts' steps1"
+    "reachable contractsD contracts' steps1"
     "getDepositTD contractsD tokenDepositAddress ID = 
      hash3 caller token amount"
-    by (smt (verit, ccfv_threshold) DEPOSITNoDouble' HashProofVerifier.executeStep.simps(1) HashProofVerifier_axioms Un_iff append_Cons append_Cons_eq_iff assms(1) assms(3) callDepositWritesHash reachableFromStepInSteps self_append_conv2 senderMessage set_append)
+    by (smt (verit, ccfv_threshold) DEPOSITNoDouble' HashProofVerifier.executeStep.simps(1) HashProofVerifier_axioms Un_iff append_Cons append_Cons_eq_iff assms(1) assms(3) callDepositWritesHash reachableStepInSteps self_append_conv2 senderMessage set_append)
   then show ?thesis
     using hash3_nonzero[of caller token amount] *
-    by (simp add: \<open>steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2\<close> reachableFromGetDepositBridgeNoCancel)
+    by (simp add: \<open>steps = steps1 @ [DEPOSIT tokenDepositAddress caller ID token amount] @ steps2\<close> reachableGetDepositBridgeNoCancel)
 qed
 
 end

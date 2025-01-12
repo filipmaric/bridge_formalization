@@ -28,15 +28,15 @@ begin
 definition UPDATE_step where
   "UPDATE_step = UPDATE (stateOracleAddressB contractsUpdate' bridgeAddress) stateRoot"
 
-lemma reachableFromUpdate'Update [simp]:
-  shows "reachableFrom contractsUpdate' contractsUpdate [UPDATE_step]"
+lemma reachableUpdate'Update [simp]:
+  shows "reachable contractsUpdate' contractsUpdate [UPDATE_step]"
 proof-
   have "executeStep contractsUpdate' blockNumUpdate blockUpdate (UPDATE_step) = (Success, contractsUpdate)"
     using update
     unfolding UPDATE_step_def
     by simp
   then show ?thesis
-    using reachableFrom_base reachableFrom_step by blast
+    using reachable_base reachable_step by blast
 qed
 
 lemma tokenDepositStateUpdate'NotNone [simp]:
@@ -77,25 +77,25 @@ locale LastUpdate =
   fixes contractsLU :: Contracts
   fixes stepsNoUpdate :: "Step list"
   \<comment> \<open>there were no updates since the last update\<close>
-  assumes reachableFromLastUpdateLU [simp]: 
-    "reachableFrom contractsLastUpdate contractsLU stepsNoUpdate"
+  assumes reachableLastUpdateLU [simp]: 
+    "reachable contractsLastUpdate contractsLU stepsNoUpdate"
   assumes noUpdate:
     "let stateOracleAddress = stateOracleAddressB contractsLastUpdate bridgeAddress
       in \<nexists> stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set stepsNoUpdate"
 begin
 
-lemma reachableFromLastUpdate'LU [simp]:
-  shows "reachableFrom contractsLastUpdate' contractsLU (stepsNoUpdate @ [UPDATE_step])"
-  using reachableFromLastUpdateLU reachableFromTrans reachableFromUpdate'Update by blast
+lemma reachableLastUpdate'LU [simp]:
+  shows "reachable contractsLastUpdate' contractsLU (stepsNoUpdate @ [UPDATE_step])"
+  using reachableLastUpdateLU reachableTrans reachableUpdate'Update by blast
 
 lemma properSetupLU [simp]:
   shows "properSetup contractsLU tokenDepositAddress bridgeAddress"
-  using properSetupReachable properSetupUpdate' reachableFromLastUpdate'LU by blast
+  using properSetupReachable properSetupUpdate' reachableLastUpdate'LU by blast
 
 lemma stateOracleAddressBLU [simp]:
   shows "stateOracleAddressB contractsLU bridgeAddress =
          stateOracleAddressB contractsLastUpdate' bridgeAddress"
-  using reachableFromBridgeStateOracle reachableFromLastUpdate'LU 
+  using reachableBridgeStateOracle reachableLastUpdate'LU 
   by blast
 
 lemma depositLU [simp]:
@@ -110,7 +110,7 @@ lemma callLastStateLU [simp]:
   shows "callLastState contractsLU (stateOracleAddressB contractsLU bridgeAddress) = 
          (Success, stateRoot)"
   using noUpdate noUpdateLastState callUpdateLastState update
-  using reachableFromBridgeStateOracle reachableFromLastUpdate'LU reachableFromLastUpdateLU
+  using reachableBridgeStateOracle reachableLastUpdate'LU reachableLastUpdateLU
   by (smt (verit, ccfv_threshold) callLastState_def  option.case_eq_if properSetupLU properSetup_def )
 
 lemma lastStateBLU [simp]:
@@ -220,24 +220,24 @@ end
 locale Init = Init' + 
   fixes contractsI :: Contracts
   fixes stepsInit :: "Step list"
-  assumes reachableFromInitI [simp]:
-    "reachableFrom contractsInit contractsI stepsInit"
+  assumes reachableInitI [simp]:
+    "reachable contractsInit contractsI stepsInit"
 begin
 
 lemma properSetupI [simp]: 
   shows "properSetup contractsI tokenDepositAddress bridgeAddress"
-  using properSetupInit properSetupReachable reachableFromInitI
+  using properSetupInit properSetupReachable reachableInitI
   by blast
 
 lemma stateOracleAddressBI [simp]:
   shows "stateOracleAddressB contractsI bridgeAddress =
          stateOracleAddressB contractsInit bridgeAddress"
-  using reachableFromBridgeStateOracle reachableFromInitI by blast
+  using reachableBridgeStateOracle reachableInitI by blast
 
 lemma stateOracleAddressTDI [simp]:
   shows "stateOracleAddressTD contractsI tokenDepositAddress =
          stateOracleAddressTD contractsInit tokenDepositAddress"
-  using reachableFromDepositStateOracle reachableFromInitI
+  using reachableDepositStateOracle reachableInitI
   by blast
 
 lemma tokenDepositStateINotNone [simp]:
@@ -276,32 +276,32 @@ lemma ERC20stateINonNone [simp]:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   shows "ERC20state contractsI token \<noteq> None"
   using assms
-  by (meson reachableFromERC20State properToken_def reachableFromInitI)
+  by (meson reachableERC20State properToken_def reachableInitI)
 
 lemma mintedTokenBI [simp]:
   shows "mintedTokenB contractsI bridgeAddress token = 
          mintedTokenB contractsInit bridgeAddress token"
-  using reachableFromBridgeMintedToken reachableFromInitI by blast
+  using reachableBridgeMintedToken reachableInitI by blast
 
 lemma mintedTokenTDI [simp]:
   shows "mintedTokenTD contractsI tokenDepositAddress token = 
          mintedTokenTD contractsInit tokenDepositAddress token"
-  by (smt (verit, best) properSetup_def reachableFromBridgeTokenPairs reachableFromITokenPairs properSetupI properSetupInit reachableFromInitI)
+  by (smt (verit, best) properSetup_def reachableBridgeTokenPairs reachableITokenPairs properSetupI properSetupInit reachableInitI)
 
 lemma ERC20StateMintedTokenINotNone [simp]:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   shows "ERC20state contractsI (mintedTokenTD contractsInit tokenDepositAddress token) \<noteq> None"
   using assms
-  by (metis mintedTokenTDI properTokenReachable properSetupI properSetup_def properToken_def reachableFromInitI)
+  by (metis mintedTokenTDI properTokenReachable properSetupI properSetup_def properToken_def reachableInitI)
 
 end
 
 locale InitUpdate = Init where contractsI=contractsUpdate' + Update
 begin
-lemma reachableFromInitLastUpdate [simp]:
-  shows "reachableFrom contractsInit contractsUpdate (UPDATE_step # stepsInit)"
-    using reachableFromInitI reachableFromUpdate'Update
-    by (meson reachableFromSingleton reachableFrom_step)
+lemma reachableInitLastUpdate [simp]:
+  shows "reachable contractsInit contractsUpdate (UPDATE_step # stepsInit)"
+    using reachableInitI reachableUpdate'Update
+    by (meson reachableSingleton reachable_step)
 end
 
 sublocale InitUpdate \<subseteq> Init_Update: Init where contractsI=contractsUpdate and stepsInit="UPDATE_step # stepsInit"
@@ -317,13 +317,13 @@ properSetup             properSetup                                     noUpdate
 locale InitLastUpdate = Init where contractsI=contractsLastUpdate' + LastUpdate
 
 sublocale InitLastUpdate \<subseteq> Init_LastUpdate: Init where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
-  using reachableFromInitI update
-  using executeStep.simps(6) reachableFrom_step
+  using reachableInitI update
+  using executeStep.simps(6) reachable_step
   unfolding UPDATE_step_def
   using Init'_axioms Init_axioms_def Init_def by presburger
 
 sublocale InitLastUpdate \<subseteq> Init_LU: Init where contractsI=contractsLU and stepsInit="stepsNoUpdate @ [UPDATE_step] @ stepsInit"
-  by (smt (verit) Cons_eq_append_conv Init'_axioms Init.intro Init_LastUpdate.reachableFromInitI Init_axioms.intro reachableFrom.cases reachableFromInitI reachableFromLastUpdateLU reachableFromTrans)
+  by (smt (verit) Cons_eq_append_conv Init'_axioms Init.intro Init_LastUpdate.reachableInitI Init_axioms.intro reachable.cases reachableInitI reachableLastUpdateLU reachableTrans)
 
 (* ------------------------------------------------------------------------------------ *)
 
@@ -347,16 +347,16 @@ definition UPDATE1_step where
 lemma obtainContractsU:
   obtains blockU blockNumU contractsU where
   "callUpdate contractsInit (stateOracleAddressB contractsInit bridgeAddress) blockU blockNumU stateRootInit = (Success, contractsU)" and
-  "reachableFrom contractsU contractsI (butlast stepsInit)"
+  "reachable contractsU contractsI (butlast stepsInit)"
 proof-
   obtain steps where "stepsInit = steps @ [UPDATE1_step]"
     using firstUpdate
     unfolding UPDATE1_step_def
     by (metis append_butlast_last_id)
   then show ?thesis
-    using reachableFromInitI that
+    using reachableInitI that
     unfolding UPDATE1_step_def
-    by (smt (verit, best) \<open>\<And>thesis. (\<And>steps. stepsInit = steps @ [UPDATE1_step] \<Longrightarrow> thesis) \<Longrightarrow> thesis\<close> \<open>stepsInit = steps @ [UPDATE1_step]\<close> append.right_neutral butlast.simps(2) butlast_append executeStep.simps(6) list.distinct(1) reachableFrom.cases reachableFromAppend reachableFromCons')
+    by (smt (verit, best) \<open>\<And>thesis. (\<And>steps. stepsInit = steps @ [UPDATE1_step] \<Longrightarrow> thesis) \<Longrightarrow> thesis\<close> \<open>stepsInit = steps @ [UPDATE1_step]\<close> append.right_neutral butlast.simps(2) butlast_append executeStep.simps(6) list.distinct(1) reachable.cases reachableAppend reachableCons')
 qed
 
 lemma getLastStateBContractsU:
@@ -379,7 +379,7 @@ qed
 
 lemma getLastStateBContractsUNonZero:
   shows "lastStateB contractsI bridgeAddress \<noteq> 0"
-  by (metis lastStateNonZero reachableFromBridgeStateOracle firstUpdate last_in_set reachableFromInitI)
+  by (metis lastStateNonZero reachableBridgeStateOracle firstUpdate last_in_set reachableInitI)
 
 end
 
@@ -398,17 +398,17 @@ begin
 definition stepsAllLU where
   "stepsAllLU = stepsNoUpdate @ [UPDATE_step] @ stepsInit"
 
-lemma reachableFromInitLU [simp]:
-  shows "reachableFrom contractsInit contractsLU stepsAllLU"
-  using reachableFromInitI reachableFromLastUpdate'LU reachableFromTrans stepsAllLU_def by fastforce
+lemma reachableInitLU [simp]:
+  shows "reachable contractsInit contractsLU stepsAllLU"
+  using reachableInitI reachableLastUpdate'LU reachableTrans stepsAllLU_def by fastforce
 
 end
 
 sublocale InitFirstUpdateLastUpdate \<subseteq> InitFirstUpdate_LastUpdate: InitFirstUpdate where contractsI=contractsLastUpdate and stepsInit="UPDATE_step # stepsInit"
-  by (metis (full_types) Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_Cons append_Nil firstUpdate last_ConsR list.distinct(1) reachableFromInitI reachableFromTrans reachableFromUpdate'Update stateRootInitNonZero)
+  by (metis (full_types) Init'_axioms Init.intro InitFirstUpdate.intro InitFirstUpdate_axioms.intro Init_axioms.intro append_Cons append_Nil firstUpdate last_ConsR list.distinct(1) reachableInitI reachableTrans reachableUpdate'Update stateRootInitNonZero)
 
 sublocale InitFirstUpdateLastUpdate \<subseteq> InitFirstUpdate_LU: InitFirstUpdate where contractsI=contractsLU and stepsInit=stepsAllLU
-  by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableFromInitLU stateRootInitNonZero stepsAllLU_def)
+  by (metis Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def Nil_is_append_conv firstUpdate last_appendR reachableInitLU stateRootInitNonZero stepsAllLU_def)
 
 
 (* ------------------------------------------------------------------------------------ *)
@@ -420,7 +420,7 @@ lemma InitInduction [simp]:
   assumes "Init hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof generateClaimProof
            verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit contractsI
            (step # steps)"
-  assumes "reachableFrom contractsInit contractsI' steps"
+  assumes "reachable contractsInit contractsI' steps"
   assumes "executeStep contractsI' blockNum block step = (Success, contractsI)"
   shows "Init hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof generateClaimProof
          verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit contractsI' steps"
@@ -431,7 +431,7 @@ lemma InitFirstUpdateAxiomsInduction [simp]:
   assumes "InitFirstUpdate hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof
      generateClaimProof verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit
      contractsI (step # steps) stateRootInit"
-  assumes "reachableFrom contractsInit contractsI' steps"
+  assumes "reachable contractsInit contractsI' steps"
   assumes "executeStep contractsI' blockNum block step = (Success, contractsI)"
   assumes "steps \<noteq> []"
   shows "InitFirstUpdate hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof
@@ -457,28 +457,28 @@ begin
 lemma lastValidStateLU [simp]:
   shows "snd (lastValidStateTD contractsLU tokenDepositAddress) = stateRoot"
   unfolding Let_def
-  using reachableFromLastUpdateLU LastUpdateBridgeNotDead_axioms
-proof (induction contractsLastUpdate contractsLU stepsNoUpdate rule: reachableFrom.induct)
-  case (reachableFrom_base contractsLastUpdate)
+  using reachableLastUpdateLU LastUpdateBridgeNotDead_axioms
+proof (induction contractsLastUpdate contractsLU stepsNoUpdate rule: reachable.induct)
+  case (reachable_base contractsLastUpdate)
   then interpret LU': LastUpdateBridgeNotDead where contractsLastUpdate=contractsLastUpdate and contractsLU=contractsLastUpdate and stepsNoUpdate="[]"
     by simp    
   show ?case
     by (metis LU'.callLastStateLU LU'.update LU'.properSetupUpdate bridgeNotDeadLastUpdate' callUpdateITokenDeposit lastValidState_def properSetup_stateOracleAddress snd_eqD)
 next
-  case (reachableFrom_step steps contractsLU contractsLastUpdate contractsLU' blockNum block step)
+  case (reachable_step steps contractsLU contractsLastUpdate contractsLU' blockNum block step)
   then interpret LU': LastUpdateBridgeNotDead where contractsLastUpdate=contractsLastUpdate and contractsLU=contractsLU' and stepsNoUpdate=steps
     unfolding LastUpdateBridgeNotDead_def LastUpdate_def LastUpdate_axioms_def Let_def
     by simp
   have "snd (lastValidStateTD contractsLU' tokenDepositAddress) = stateRoot"
-    using reachableFrom_step.IH
+    using reachable_step.IH
     using LU'.LastUpdateBridgeNotDead_axioms by auto
   moreover
   have "\<nexists>stateRoot'. step = UPDATE (stateOracleAddressB contractsLU' bridgeAddress) stateRoot'"
-    by (metis reachableFromBridgeStateOracle LU'.reachableFromLastUpdateLU LastUpdate.noUpdate LastUpdateBridgeNotDead.axioms(1) list.set_intros(1) reachableFrom_step.prems)
+    by (metis reachableBridgeStateOracle LU'.reachableLastUpdateLU LastUpdate.noUpdate LastUpdateBridgeNotDead.axioms(1) list.set_intros(1) reachable_step.prems)
   ultimately
   show ?case
     using noUpdateGetLastValidStateTD
-    using LU'.properSetupLU properSetup_stateOracleAddress reachableFrom_step.hyps(2) 
+    using LU'.properSetupLU properSetup_stateOracleAddress reachable_step.hyps(2) 
     by presburger
 qed
 
@@ -497,24 +497,24 @@ locale InitUpdateBridgeNotDeadLastValidState = InitUpdate +
   fixes stepsLVS :: "Step list"
   assumes bridgeNotDead [simp]: 
     "\<not> bridgeDead contractsUpdate' tokenDepositAddress"
-  assumes reachableFromUpdate'LVS [simp]: 
-    "reachableFrom contractsUpdate contractsLVS stepsLVS"
+  assumes reachableUpdate'LVS [simp]: 
+    "reachable contractsUpdate contractsLVS stepsLVS"
   assumes getLastValidStateLVS: 
     "lastValidStateTD contractsLVS tokenDepositAddress = (Success, stateRoot)"
 begin
 definition stepsAllLVS where
   "stepsAllLVS = stepsLVS @ [UPDATE_step] @ stepsInit"
 
-lemma reachableFromInitLVS [simp]: 
-  shows "reachableFrom contractsInit contractsLVS stepsAllLVS"
+lemma reachableInitLVS [simp]: 
+  shows "reachable contractsInit contractsLVS stepsAllLVS"
   unfolding stepsAllLVS_def
-  using reachableFromTrans reachableFromUpdate'LVS  reachableFromInitI reachableFromUpdate'Update
+  using reachableTrans reachableUpdate'LVS  reachableInitI reachableUpdate'Update
   by blast
 
 end
 
 sublocale InitUpdateBridgeNotDeadLastValidState \<subseteq> Init_LVS: Init where contractsI=contractsLVS and stepsInit="stepsAllLVS"
-  using reachableFromInitLVS 
+  using reachableInitLVS 
   by unfold_locales auto
 
 (*
@@ -533,12 +533,12 @@ locale BridgeDead =
   assumes notBridgeDead' [simp]:
     "\<not> bridgeDead contractsDead' tokenDepositAddress"
   assumes deathStep [simp]: 
-    "reachableFrom contractsDead' contractsDead [stepDeath]"
+    "reachable contractsDead' contractsDead [stepDeath]"
   assumes bridgeDead [simp]:
     "bridgeDead contractsDead tokenDepositAddress"
   \<comment> \<open>Current contracts are reached\<close>
-  assumes reachableFromContractsBD [simp]:
-    "reachableFrom contractsDead contractsBD stepsBD"
+  assumes reachableContractsBD [simp]:
+    "reachable contractsDead contractsBD stepsBD"
   \<comment> \<open>state root hash is not zero\<close>
   assumes stateRootNonZero:
     "stateRoot \<noteq> 0"
@@ -549,23 +549,23 @@ definition stepsAllBD where
 definition stepsBeforeDeath where
   "stepsBeforeDeath = stepsNoUpdate @ [UPDATE_step] @ stepsInit"
 
-lemma reachableFromLastUpdateDead [simp]:
-  shows "reachableFrom contractsLastUpdate contractsDead (stepDeath # stepsNoUpdate)"
-  by (meson deathStep reachableFromLastUpdateLU reachableFromSingleton reachableFrom_step)
+lemma reachableLastUpdateDead [simp]:
+  shows "reachable contractsLastUpdate contractsDead (stepDeath # stepsNoUpdate)"
+  by (meson deathStep reachableLastUpdateLU reachableSingleton reachable_step)
 
 lemma notBridgeDeadContractsLastUpdate' [simp]:
   shows "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
-  using notBridgeDead' reachableFromBridgeDead reachableFromLastUpdate'LU 
+  using notBridgeDead' reachableBridgeDead reachableLastUpdate'LU 
   by blast
 
 lemma bridgeDeadContractsBD [simp]:
   shows "bridgeDead contractsBD tokenDepositAddress"
-  using reachableFromBridgeDead bridgeDead reachableFromContractsBD
+  using reachableBridgeDead bridgeDead reachableContractsBD
   by blast
 
 lemma stepDeathNoUpdate [simp]:
   shows "\<nexists> address stateRoot. stepDeath = UPDATE address stateRoot"
-  by (metis bridgeDead callUpdateITokenDeposit deathStep executeStep.simps(6) notBridgeDead' reachableFromSingleton)
+  by (metis bridgeDead callUpdateITokenDeposit deathStep executeStep.simps(6) notBridgeDead' reachableSingleton)
  
 lemma getLastStateBLastUpdate [simp]:
   shows "lastStateB contractsLastUpdate bridgeAddress = stateRoot"
@@ -574,34 +574,34 @@ lemma getLastStateBLastUpdate [simp]:
 
 lemma deadStateContractsDead [simp]: 
   shows "deadStateTD contractsDead tokenDepositAddress = stateRoot"
-  by (metis BridgeDiesDeadState bridgeDead deathStep lastStateTDLU notBridgeDead' reachableFromSingleton)
+  by (metis BridgeDiesDeadState bridgeDead deathStep lastStateTDLU notBridgeDead' reachableSingleton)
 
 lemma deadStateContractsBD [simp]: 
   shows "deadStateTD contractsBD tokenDepositAddress = stateRoot"
-  using stateRootNonZero reachableFromContractsBD deadStateContractsDead reachableFromDeadState
+  using stateRootNonZero reachableContractsBD deadStateContractsDead reachableDeadState
   by blast
 
 end
 
 sublocale BridgeDead \<subseteq> Init_Dead': Init where contractsI=contractsDead' and stepsInit=stepsBeforeDeath
 proof
-  show "reachableFrom contractsInit contractsDead' stepsBeforeDeath"
-    using reachableFromInitI reachableFromLastUpdateLU reachableFromTrans reachableFromUpdate'Update stepsBeforeDeath_def
+  show "reachable contractsInit contractsDead' stepsBeforeDeath"
+    using reachableInitI reachableLastUpdateLU reachableTrans reachableUpdate'Update stepsBeforeDeath_def
     by presburger
 qed
 
 sublocale BridgeDead \<subseteq> Init_Dead: Init where contractsI=contractsDead and stepsInit="[stepDeath] @ stepsBeforeDeath"
 proof
-  show "reachableFrom contractsInit contractsDead  ([stepDeath] @ stepsBeforeDeath)"
-    using Init_Dead'.reachableFromInitI deathStep reachableFromTrans 
+  show "reachable contractsInit contractsDead  ([stepDeath] @ stepsBeforeDeath)"
+    using Init_Dead'.reachableInitI deathStep reachableTrans 
     by blast
 qed
 
 sublocale BridgeDead \<subseteq> Init_BD: Init where contractsI=contractsBD and stepsInit=stepsAllBD
 proof
-  show "reachableFrom contractsInit contractsBD stepsAllBD"
+  show "reachable contractsInit contractsBD stepsAllBD"
     unfolding stepsAllBD_def
-    by (metis Init_Dead.reachableFromInitI reachableFromContractsBD reachableFromTrans stepsBeforeDeath_def)
+    by (metis Init_Dead.reachableInitI reachableContractsBD reachableTrans stepsBeforeDeath_def)
 qed
 
 sublocale BridgeDead \<subseteq> LastUpdateBridgeNotDead where contractsLU=contractsDead'
@@ -651,8 +651,8 @@ sublocale BridgeDead \<subseteq> InitUpdateBridgeNotDeadLastValidState_BD: InitU
   contractsLVS=contractsBD and 
   stepsLVS="stepsBD @ [stepDeath] @ stepsNoUpdate"
 proof
-  show "reachableFrom contractsLastUpdate contractsBD (stepsBD @ [stepDeath] @ stepsNoUpdate)"
-    using deathStep reachableFromContractsBD reachableFromTrans reachableFromLastUpdateLU
+  show "reachable contractsLastUpdate contractsBD (stepsBD @ [stepDeath] @ stepsNoUpdate)"
+    using deathStep reachableContractsBD reachableTrans reachableLastUpdateLU
     by blast
 next
   show "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
