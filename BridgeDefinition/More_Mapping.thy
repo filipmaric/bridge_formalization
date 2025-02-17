@@ -217,18 +217,21 @@ lemma mapping_value_sum_eq:
   assumes "finite (Mapping.keys m1)" "finite (Mapping.keys m2)"
   assumes "\<forall>x. lookupNat m1 x = lookupNat m2 x"
   shows "mapping_value_sum m1 = mapping_value_sum m2"
-  using assms
-  unfolding mapping_value_sum_def
-proof (induction "Mapping.ordered_entries m1" arbitrary: m1 m2)
-  case Nil
-  then show ?case
-    by (simp add: ordered_entries_empty lookupNat_all0)
-next
-  case (Cons x xs)
-  then show ?case
-    sorry
+proof-
+  have "Mapping.ordered_entries m1 = Mapping.ordered_entries m2" (is "?m1 = ?m2")
+  proof-
+    have *: "map fst ?m1 = map fst ?m2"
+      sorry
+    moreover
+    have "map snd ?m1 = map snd ?m2"
+      by (metis assms(1) assms(2) assms(3) * lookupNat_def map_fst_ordered_entries mapping_eqI' set_ordered_keys)
+    ultimately
+    show ?thesis
+      by (metis zip_map_fst_snd)
+  qed
+  then show ?thesis
+    unfolding mapping_value_sum_def
+    by simp
 qed
-
-
 
 end

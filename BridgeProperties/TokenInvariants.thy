@@ -810,8 +810,52 @@ end
 
 (* ------------------------------------------------------------------------------------ *)
 
+context HashProofVerifier
+begin
+
+definition noDepositOfToken where
+  "noDepositOfToken token steps \<longleftrightarrow> 
+    (\<forall> step \<in> set steps. \<forall> address' token'. isDeposit address' token' step \<longrightarrow> token' \<noteq> token)"
+
+definition noReleaseOfToken where
+  "noReleaseOfToken token steps \<longleftrightarrow> 
+    (\<forall> step \<in> set steps. \<forall> address' token'. isRelease address' token' step \<longrightarrow> token' \<noteq> token)"
+
+definition noCancelOfToken where
+  "noCancelOfToken token steps \<longleftrightarrow> 
+    (\<forall> step \<in> set steps. \<forall> address' token'. isCancel address' token' step \<longrightarrow> token' \<noteq> token)"
+
+definition noWithdrawOfToken where
+  "noWithdrawOfToken token steps \<longleftrightarrow> 
+    (\<forall> step \<in> set steps. \<forall> address' token'. isWithdraw address' token' step \<longrightarrow> token' \<noteq> token)"
+
+definition noActionOfToken where
+ "noActionOfToken token steps \<equiv>
+    noDepositOfToken token steps \<and>
+    noReleaseOfToken token steps \<and>
+    noCancelOfToken token steps \<and>
+    noWithdrawOfToken token steps"
+
+lemma noActionOfTokenCons [simp]:
+  assumes "noActionOfToken token (step # steps)"
+  shows "noActionOfToken token steps"
+  using assms
+  by (simp add: noActionOfToken_def noCancelOfToken_def noDepositOfToken_def noReleaseOfToken_def noWithdrawOfToken_def)
+
+definition mintedUnique where
+  "mintedUnique contracts address token \<longleftrightarrow> 
+   (\<forall> address' token'. 
+           address' \<noteq> address \<or> token' \<noteq> token \<longrightarrow> 
+           mintedTokenB contracts address token \<noteq> mintedTokenB contracts address' token')"
+
+definition tokenNotMinted where
+  "tokenNotMinted contracts token \<longleftrightarrow> (\<forall> address' token'. mintedTokenB contracts address' token' \<noteq> token)"
+
+end
+
 context InitFirstUpdate
 begin
+
 
 text \<open>The total amount of minted tokens is the difference between claimed tokens and burned tokens\<close>
 (*               [steps]
@@ -820,6 +864,8 @@ text \<open>The total amount of minted tokens is the difference between claimed 
 *)
 theorem totalMintedBridgeNotDead':
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
   shows "totalMinted contractsI bridgeAddress token + 
          burnedAmount bridgeAddress token stepsInit = 
          totalMinted contractsInit bridgeAddress token + 
@@ -828,7 +874,7 @@ theorem totalMintedBridgeNotDead':
 proof (induction contractsInit contractsI stepsInit rule: reachable.induct)
   case (reachable_base contractsInit)
   then show ?case
-    by simp
+    using burnedAmountNil claimedAmountNil by presburger
 next
   case (reachable_step steps contractsI contractsInit contractsI' blockNum block step)
 
@@ -853,7 +899,7 @@ next
       by simp
     moreover
     have "step = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
-      by (metis InitFirstUpdate.firstUpdate True last.simps reachable_step.prems(2))
+      by (metis InitFirstUpdate.firstUpdate True last.simps reachable_step.prems(4))
     ultimately
     show ?thesis
       using reachable_step.prems reachable_step.hyps firstUpdate True
@@ -862,14 +908,16 @@ next
     case False
 
     interpret IFU: InitFirstUpdate where contractsInit=contractsInit and contractsI=contractsI' and stepsInit=steps
-      using False InitFirstUpdateAxiomsInduction reachable_step.hyps(1) reachable_step.hyps(2) reachable_step.prems(2)
+      using False InitFirstUpdateAxiomsInduction reachable_step.hyps(1) reachable_step.hyps(2) reachable_step.prems(4)
       by blast
 
     have *: "reachable contractsInit contractsI (step # steps)"
       using reachable.reachable_step reachable_step
       by blast
 
-    have *: "totalMinted contractsI' bridgeAddress token + burnedAmount bridgeAddress token steps = 
+    have "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) steps"
+      using reachable_step.prems(3) noActionOfTokenCons by blast
+    then have *: "totalMinted contractsI' bridgeAddress token + burnedAmount bridgeAddress token steps = 
              totalMinted contractsInit bridgeAddress token +
              claimedAmount bridgeAddress token steps"
       using reachable_step.IH reachable_step.prems
@@ -888,7 +936,9 @@ next
       proof (cases "address' = tokenDepositAddress \<and> token' = token")
         case False
         have "token' \<noteq> mintedTokenB contractsInit bridgeAddress token"
-          sorry (* no direct deposit on minted token *)
+          using reachable_step.prems(3)
+          unfolding noActionOfToken_def noDepositOfToken_def
+          by (metis DEPOSIT isDeposit.simps(1) list.set_intros(1))
         then have "ERC20state contractsI (mintedTokenB contractsInit bridgeAddress token) = ERC20state contractsI' (mintedTokenB contractsInit bridgeAddress token)"
           using DEPOSIT reachable_step.prems reachable_step.hyps callDepositOtherToken
           by (metis executeStep.simps(1))
@@ -921,7 +971,7 @@ next
         show ?thesis
           using * **
           using DEPOSIT True callDepositOtherToken
-          using  reachable_step.prems(1)
+          using reachable_step.prems(1)
           unfolding properToken_def
           by (smt (verit, ccfv_SIG) executeStep.simps(1) reachableBridgeTokenPairs reachableITokenPairs IFU.reachableInitI reachable_step.hyps(2))
       qed
@@ -965,8 +1015,10 @@ next
           by (smt (verit, del_insts) ab_semigroup_add_class.add_ac(1) add.commute)
       next
         case False
-        have "?mintedToken \<noteq> mintedTokenB contractsInit address' token'" (* no cancel of minted tokens *)
-          sorry
+        then have "?mintedToken \<noteq> mintedTokenB contractsInit address' token'" (* no cancel of minted tokens *)
+          using reachable_step.prems(2)
+          unfolding mintedUnique_def
+          by auto
         then have "ERC20state contractsI ?mintedToken = ERC20state contractsI' ?mintedToken"
           using CLAIM callClaimOtherToken[where msg="message caller amount"]
           by (metis executeStep.simps(2) reachableBridgeMintedToken IFU.reachableInitI reachable_step.hyps(2))
@@ -1013,7 +1065,9 @@ next
     next
       case (CANCEL_WD address' caller' ID' token' amount' proof')
       have "?mintedToken \<noteq> token'" (* no cancel of minted tokens *)
-        sorry
+        using reachable_step.prems(3)
+        unfolding noActionOfToken_def noCancelOfToken_def
+        by (metis CANCEL_WD isCancel.simps(1) list.set_intros(1))
       then have "ERC20state contractsI ?mintedToken = ERC20state contractsI' ?mintedToken"
         using CANCEL_WD reachable_step.hyps(2)
         using callCancelDepositWhileDeadOtherToken
@@ -1039,7 +1093,9 @@ next
     next
       case (WITHDRAW_WD address' caller token' amount proof')
       have "?mintedToken \<noteq> token'" (* no withdrawal of minted tokens *)
-        sorry
+        using reachable_step.prems(3)
+        unfolding noActionOfToken_def noWithdrawOfToken_def
+        by (metis WITHDRAW_WD isWithdraw.simps(1) list.set_intros(1))
       then have "ERC20state contractsI ?mintedToken = ERC20state contractsI' ?mintedToken"
         using WITHDRAW_WD reachable_step.hyps(2)
         using callWithdrawWhileDeadOtherToken
@@ -1157,7 +1213,7 @@ next
       next
       case False
         have "?mintedToken \<noteq> mintedTokenB contractsI' address' token'"
-          sorry
+          by (metis False mintedUnique_def IFU.reachableInitI reachableBridgeMintedToken reachable_step.prems(2))
         then have "ERC20state contractsI ?mintedToken = ERC20state contractsI' ?mintedToken"
           using BURN reachable_step.hyps(2)
           using callWithdrawOtherToken
@@ -1186,8 +1242,10 @@ next
       qed
     next
       case (RELEASE address' caller' ID' token' amount')
-      have "?mintedToken \<noteq> token'" (* no withdrawal of minted tokens *)
-        sorry
+      have "?mintedToken \<noteq> token'" (* no release of minted tokens *)
+        using reachable_step.prems(3)
+        unfolding noActionOfToken_def noReleaseOfToken_def
+        by (metis RELEASE isRelease.simps(1) list.set_intros(1))
       then have "ERC20state contractsI ?mintedToken = ERC20state contractsI' ?mintedToken"
         using RELEASE reachable_step.hyps(2)
         using callReleaseOtherToken
@@ -1216,6 +1274,8 @@ qed
 
 theorem totalMintedBridgeNotDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
   shows "totalMinted contractsI bridgeAddress token + 
          burnedAmount bridgeAddress token stepsInit =
@@ -1243,8 +1303,9 @@ begin
 
 text \<open>Current TokenDeposit balance equals the sum of all deposits minus
        the sum of all released, canceled and withdrawn tokens \<close>
-theorem tokenDepositBalanceInvariant:
+lemma tokenDepositBalanceInvariant:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
+  assumes "tokenNotMinted contractsInit token"
   shows "tokenDepositBalance contractsI token tokenDepositAddress + 
          canceledAmount tokenDepositAddress token stepsInit + 
          withdrawnAmount tokenDepositAddress token stepsInit + 
@@ -1278,7 +1339,9 @@ next
   next
     case (TRANSFER address' caller' receiver' token' amount')
     have "mintedTokenB contractsI' address' token' \<noteq> token"
-      sorry
+      using reachable_step.prems(3)
+      unfolding tokenNotMinted_def
+      by (metis I.reachableInitI reachableBridgeMintedToken)
     then have "accountBalance contractsI token tokenDepositAddress = 
                accountBalance contractsI' token tokenDepositAddress"
       using TRANSFER reachable_step.hyps
@@ -1290,7 +1353,9 @@ next
   next
     case (CLAIM address' caller' ID' token' amount' proof')
     have "mintedTokenB contractsI' address' token' \<noteq> token"
-      sorry
+      using reachable_step.prems(3)
+      unfolding tokenNotMinted_def
+      by (metis I.reachableInitI reachableBridgeMintedToken)
     then have "accountBalance contractsI token tokenDepositAddress = 
               accountBalance contractsI' token tokenDepositAddress"
       using callClaimOtherToken[of contractsI' address' "message caller' amount'" ID']
@@ -1310,7 +1375,7 @@ next
     next
       case False
       have "caller' \<noteq> tokenDepositAddress"
-        sorry
+        by (metis DEPOSIT I.Init'_axioms Init'.notCallerTD Init.reachableInitI isCaller.simps(1) list.set_intros(1) reachable_step.prems(1))
       then show ?thesis
         using False * DEPOSIT reachable_step.hyps
         using callDepositOtherToken[of token token']
@@ -1329,7 +1394,7 @@ next
     next
       case False
       have "caller' \<noteq> tokenDepositAddress"
-        sorry
+        by (metis CANCEL_WD I.Init'_axioms Init'.notCallerTD Init.reachableInitI isCaller.simps(7) list.set_intros(1) reachable_step.prems(1))
       then show ?thesis
         using False CANCEL_WD * reachable_step.hyps 
         using callCancelDepositWhileDeadBalanceOfOther callCancelDepositWhileDeadOtherToken
@@ -1349,7 +1414,7 @@ next
     next
       case False
       have "caller' \<noteq> tokenDepositAddress"
-        sorry
+        by (metis WITHDRAW_WD I.Init'_axioms Init'.notCallerTD Init.reachableInitI isCaller.simps(8) list.set_intros(1) reachable_step.prems(1))
       then show ?thesis
         using False WITHDRAW_WD * reachable_step.hyps 
         using callWithdrawWhileDeadBalanceOfOther[of contractsI' address' "message caller' 0" block token' amount' proof' contractsI tokenDepositAddress] 
@@ -1360,7 +1425,9 @@ next
   next
     case (BURN address' caller' ID' token' amount')
     have "mintedTokenB contractsI' address' token' \<noteq> token"
-      sorry
+      using reachable_step.prems(3)
+      unfolding tokenNotMinted_def
+      by (metis I.reachableInitI reachableBridgeMintedToken)
     then have "accountBalance contractsI token tokenDepositAddress = 
                accountBalance contractsI' token tokenDepositAddress"
       using callWithdrawOtherToken[of contractsI' address' "message caller' 0" ID']
@@ -1381,7 +1448,7 @@ next
     next
       case False
       have "caller' \<noteq> tokenDepositAddress"
-        sorry
+        by (metis RELEASE I.Init'_axioms Init'.notCallerTD Init.reachableInitI isCaller.simps(4) list.set_intros(1) reachable_step.prems(1))
       then show ?thesis
         using False RELEASE * reachable_step.hyps 
         using callReleaseBalanceOfOther[of contractsI' address' "message caller' 0" ID' token' amount' proof' contractsI tokenDepositAddress] 
@@ -1568,7 +1635,7 @@ context HashProofVerifier
 begin
 
 text \<open>All deposits are either claimed before death or not claimed before death\<close>
-theorem depositedAmountEqualsClaimedPlusNonClaimed:
+lemma depositedAmountEqualsClaimedPlusNonClaimed:
   shows "depositedAmount tokenDepositAddress token steps = 
          claimedBeforeDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps + 
          nonClaimedBeforeDepositsAmount tokenDepositAddress bridgeAddress token stepsBefore steps"
@@ -1722,7 +1789,6 @@ proof (induction contractsDead contractsBD stepsBD rule: reachable.induct)
   then interpret BD: BridgeDead where contractsBD=contractsBD and stepsBD="[]" and contractsDead=contractsBD
     .
   have *: "?NCC [] + ?C [] = ?NC []"
-    find_theorems name: reachableInitLVS
     using InitUpdateBridgeNotDeadLastValidState_Dead'.reachableInitLVS canceledAmountBridgeNotDead nonCanceledNonClaimedBridgeNotDead notBridgeDead'
     unfolding InitUpdateBridgeNotDeadLastValidState_Dead'.stepsAllLVS_def
     by auto
@@ -1834,7 +1900,7 @@ next
   qed auto
 qed
 
-theorem canceledAmountInvariant:
+lemma canceledAmountInvariant:
   shows
   "nonClaimedBeforeNonCanceledDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD + 
    canceledAmount tokenDepositAddress token stepsAllBD = 
@@ -1984,8 +2050,10 @@ lemma mintedUserBalances_finiteKeys [simp]:
 
 
 text \<open>Claims, burns and transfers faithfully represent balances of minted tokens on the bridge\<close>
-theorem mintedUserBalancesAccountBalance:
+lemma mintedUserBalancesAccountBalance:
   assumes "reachable contracts contracts' steps"
+  assumes "mintedUnique contracts bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contracts bridgeAddress token) steps"
   assumes "accountBalance contracts (mintedTokenB contracts bridgeAddress token) account = 0"
   shows "balanceOf (mintedUserBalances bridgeAddress token steps) account = 
          accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account"
@@ -1993,12 +2061,15 @@ theorem mintedUserBalancesAccountBalance:
 proof (induction contracts contracts' steps)
   case (reachable_base contracts)
   then show ?case
-    by simp
+    using ERC20constructorBalanceOf mintedUserBalancesNil by presburger
 next
   case (reachable_step steps contracts'' contracts contracts' blockNum block step)
+  have "noActionOfToken (mintedTokenB contracts bridgeAddress token) steps"
+    using reachable_step.prems(2) noActionOfTokenCons
+    by blast
   then have *: 
     "balanceOf (mintedUserBalances bridgeAddress token steps) account =
-    accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account"
+     accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account"
     using reachable_step
     by blast
     
@@ -2014,12 +2085,25 @@ next
         by simp
     next
       case False
-      have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
-        sorry
-      then show ?thesis
-        using False CLAIM * reachable_step.hyps 
-        using  callClaimOtherToken[of contracts' address'  "message caller' amount'"]
-        by (cases "address' = bridgeAddress \<and> token' = token") auto
+      show ?thesis
+      proof (cases "address' = bridgeAddress \<and> token' = token")
+        case False
+        then have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
+          using reachable_step.prems(1) False
+          unfolding mintedUnique_def
+          by blast
+        then show ?thesis
+          using False CLAIM * reachable_step.hyps 
+          using callClaimOtherToken[of contracts' address'  "message caller' amount'"]
+          by auto
+      next
+        case True
+        then have "caller' \<noteq> account"
+          using False by auto
+        then show ?thesis
+          using True CLAIM * reachable_step.hyps
+          by (metis (no_types, lifting) mintedUserBalancesConsClaim reachableBridgeTokenPairs reachableITokenPairs addToBalanceBalanceOfOther callClaimBalanceOfOther executeStep.simps(2) senderMessage)
+      qed
     qed
   next
     case (TRANSFER address' caller' receiver' token' amount')
@@ -2027,11 +2111,16 @@ next
       "callTransfer contracts' address' caller' receiver' token' amount' = (Success, contracts'')"
         using TRANSFER reachable_step.hyps
         by auto
+      then have "caller' \<noteq> receiver'"
+        unfolding callTransfer_def transfer_def Let_def
+        by (auto split: option.splits prod.splits if_split_asm)
+
     show ?thesis
     proof (cases "address' = bridgeAddress \<and> token' = token \<and> caller' = account")
       case True
-      have "account \<noteq> receiver'"
-        sorry
+      then have "account \<noteq> receiver'"
+        using \<open>caller' \<noteq> receiver'\<close>
+        by auto
       show ?thesis
         using True TRANSFER * reachable_step.hyps
         using callTransferBalanceOfCaller[OF transfer]
@@ -2045,21 +2134,46 @@ next
         then have "account \<noteq> caller'"
           using False
           by auto
-        have "caller' \<noteq> receiver'" "account \<noteq> receiver'"
-          sorry
-        have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
-              accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
-          using callTransferBalanceOfOther[OF _ _ transfer] True  \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close>
-          by (metis (no_types, opaque_lifting) reachableBridgeTokenPairs reachableITokenPairs reachable_step.hyps(1))
-        then show ?thesis
-          using transferBalanceBalanceOfOther *
-          using TRANSFER True \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close> addToBalanceBalanceOfOther removeFromBalanceBalanceOfOther mintedUserBalancesConsTransfer transferBalance_def 
-          by presburger
+        show ?thesis
+        proof (cases "account = receiver'")
+          case False
+          have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
+                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
+            using callTransferBalanceOfOther[OF _ _ transfer] \<open>address' = bridgeAddress \<and> token' = token\<close>  \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close>
+            by (metis (no_types, opaque_lifting) reachableBridgeTokenPairs reachableITokenPairs reachable_step.hyps(1))
+          then show ?thesis
+            using transferBalanceBalanceOfOther *
+            using TRANSFER \<open>address' = bridgeAddress \<and> token' = token\<close> \<open>account \<noteq> caller'\<close> \<open>account \<noteq> receiver'\<close> addToBalanceBalanceOfOther removeFromBalanceBalanceOfOther mintedUserBalancesConsTransfer transferBalance_def 
+            by presburger
+        next
+          case True
+          have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account + amount' =
+                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
+            using callTransferBalanceOfReceiver[OF transfer] \<open>address' = bridgeAddress \<and> token' = token\<close> \<open>account = receiver'\<close>
+            by (metis reachableBridgeMintedToken reachable_step.hyps(1))
+          moreover
+          have "balanceOf (transferBalance (mintedUserBalances bridgeAddress token steps) caller' receiver' amount') receiver' = 
+                balanceOf (mintedUserBalances bridgeAddress token steps) receiver' + amount'"
+          proof (subst transferBalanceBalanceOfFrom)
+            show "caller' \<noteq> receiver'" by fact
+          next
+            have "amount' \<le> accountBalance contracts' (mintedTokenB contracts' bridgeAddress token) caller'"
+              using callTransferBalanceOfCaller(1)[OF transfer] \<open>address' = bridgeAddress \<and> token' = token\<close>
+              by simp
+            then show "amount' \<le> balanceOf (mintedUserBalances bridgeAddress token steps) caller'"
+              sorry
+          qed simp
+          ultimately show ?thesis
+            using \<open>address' = bridgeAddress \<and> token' = token\<close> \<open>account = receiver'\<close> * TRANSFER
+            by simp
+        qed
       next
         case False
-        have m: "mintedTokenB contracts' address' token' \<noteq>
+        then have m: "mintedTokenB contracts' address' token' \<noteq>
                  mintedTokenB contracts bridgeAddress token"
-          sorry
+          using reachable_step.prems(1)
+          unfolding mintedUnique_def
+          by (metis reachableBridgeMintedToken reachable_step.hyps(1))
         have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
               accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
           using * callTransferOtherToken[OF transfer _ m]
@@ -2078,7 +2192,9 @@ next
   next
     case (DEPOSIT address' caller' ID' token' amount')
     have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
-      sorry
+      using reachable_step.prems(2)
+      unfolding noActionOfToken_def noDepositOfToken_def
+      by (metis DEPOSIT isDeposit.simps(1) list.set_intros(1))
     then have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
       using callDepositOtherToken
@@ -2090,7 +2206,9 @@ next
   next
     case (CANCEL_WD address' caller' ID' token' amount' proof')
     have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
-      sorry
+      using reachable_step.prems(2)
+      unfolding noActionOfToken_def noCancelOfToken_def
+      by (metis CANCEL_WD isCancel.simps(1) list.set_intros(1))
     then have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
       using CANCEL_WD reachable_step.hyps
@@ -2102,7 +2220,9 @@ next
   next
     case (WITHDRAW_WD address' caller' token' amount' proof')
     have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
-      sorry
+      using reachable_step.prems(2)
+      unfolding noActionOfToken_def noWithdrawOfToken_def
+      by (metis WITHDRAW_WD isWithdraw.simps(1) list.set_intros(1))
     then have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
       using WITHDRAW_WD reachable_step.hyps
@@ -2114,7 +2234,9 @@ next
   next
     case (RELEASE address' caller' ID' token' amount' proof')
     have "mintedTokenB contracts bridgeAddress token \<noteq> token'"
-      sorry
+      using reachable_step.prems(2)
+      unfolding noActionOfToken_def noReleaseOfToken_def
+      by (metis RELEASE isRelease.simps(1) list.set_intros(1))
     then have "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) account =
                accountBalance contracts'' (mintedTokenB contracts bridgeAddress token) account"
       using callReleaseOtherToken
@@ -2134,20 +2256,36 @@ next
         by simp
     next
       case False
-      have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
-        sorry
-      then show ?thesis
-        using False BURN * reachable_step.hyps 
-        using  callWithdrawOtherToken[of contracts' address'  "message caller' 0"]
-        by (cases "address' = bridgeAddress \<and> token' = token") auto
+      show ?thesis
+      proof (cases "address' = bridgeAddress \<and> token' = token")
+        case False
+        then have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
+          using reachable_step.prems(1)
+          unfolding mintedUnique_def
+          by blast
+        then show ?thesis
+          using False BURN * reachable_step.hyps 
+          using callWithdrawOtherToken[of contracts' address'  "message caller' 0"]
+          by auto
+      next
+        case True
+        then have "caller' \<noteq> account" 
+          using False
+          by auto
+        then show ?thesis
+          using True BURN * reachable_step.hyps
+          by (metis (no_types, lifting) callWithdrawBalanceOfOther executeStep.simps(3) mintedUserBalancesConsBurn reachableBridgeTokenPairs reachableITokenPairs removeFromBalanceBalanceOfOther senderMessage)
+      qed
     qed
   qed
 qed
 
-theorem totalMintedUserBalances:
+lemma totalMintedUserBalances:
   assumes "reachable contracts contracts' steps"
   assumes "totalMinted contracts bridgeAddress token = 0"
   assumes "finiteBalances contracts (mintedTokenB contracts bridgeAddress token)"
+  assumes "mintedUnique contracts bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contracts bridgeAddress token) steps"
   shows "totalBalance (mintedUserBalances bridgeAddress token steps) =
          totalMinted contracts' bridgeAddress token"
 proof (rule totalBalanceEq, safe)
@@ -2163,7 +2301,7 @@ next
   then show "balanceOf (mintedUserBalances bridgeAddress token steps) user = 
         accountBalance contracts' (mintedTokenB contracts' bridgeAddress token) user"
     using mintedUserBalancesAccountBalance assms totalBalanceZero reachableBridgeMintedToken
-    by metis
+    by (smt (verit, best))
 qed
 
 end
@@ -2175,11 +2313,12 @@ lemma totalMintedUserBalancesClaimedBurnedAmount:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
   assumes "finiteBalances contractsInit (mintedTokenB contractsInit bridgeAddress token)"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
   shows "totalBalance (mintedUserBalances bridgeAddress token stepsInit) + 
          burnedAmount bridgeAddress token stepsInit =
          claimedAmount bridgeAddress token stepsInit"
-  using totalMintedUserBalances[OF reachableInitI] totalMintedBridgeNotDead
-  using assms
+  using totalMintedUserBalances[OF reachableInitI assms(2-5)] totalMintedBridgeNotDead[OF assms(1) assms(4-5) assms(2)]
   by metis
 
 end
@@ -2342,11 +2481,13 @@ end
 context InitFirstUpdate
 begin
 
-theorem claimedBeforeDepositsAmountBridgeNotDead:
+lemma claimedBeforeDepositsAmountBridgeNotDead:
   assumes "stepsInit = steps @ stepsBefore"
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
   assumes "finiteBalances contractsInit (mintedTokenB contractsInit bridgeAddress token)"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsBefore"
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
   shows "nonBurnedClaimedBeforeAmount bridgeAddress token stepsBefore +
          burnedAmount bridgeAddress token stepsBefore =
@@ -2385,9 +2526,11 @@ end
 context BridgeDeadInitFirstUpdate
 begin
 
-theorem withdrawnAmountInvariant':
+lemma withdrawnAmountInvariant':
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
   shows
   "withdrawnAmount tokenDepositAddress token ((stepsBD @ [stepDeath]) @ stepsNoUpdate @ [UPDATE_step] @ stepsInit) + 
    nonWithdrawnNonBurnedClaimedBeforeAmount tokenDepositAddress bridgeAddress token stepsInit ((stepsBD @ [stepDeath]) @ stepsNoUpdate @ [UPDATE_step] @ stepsInit) +
@@ -2464,7 +2607,7 @@ proof (induction contractsDead contractsBD stepsBD rule: reachable.induct)
       then have "accountBalance contractsLastUpdate' ?mintedToken caller' = amount'"
         by (metis (no_types, lifting) ERC20StateMintedTokenINotNone generateStateRootUpdate' mintedTokenITDB option.collapse reachable_base.prems(1) verifyBalanceProofE)
       then have "balanceOf (mintedUserBalances bridgeAddress token stepsInit) caller' = amount'" 
-        using mintedUserBalancesAccountBalance[OF reachableInitI totalBalanceZero, of bridgeAddress token caller']
+        using mintedUserBalancesAccountBalance[OF reachableInitI assms(3-4) totalBalanceZero]
         using reachable_base.prems(2)
         using properTokenFiniteBalancesMinted reachable_base.prems
         unfolding finiteBalances_def
@@ -2498,11 +2641,11 @@ proof (induction contractsDead contractsBD stepsBD rule: reachable.induct)
 next
   case (reachable_step stepsBD contractsBD'' contractsDead contractsBD' blockNum block step)
   interpret BD: BridgeDead where contractsDead=contractsDead and contractsBD=contractsBD' and stepsBD=stepsBD
-    by (metis BridgeDead.bridgeDead BridgeDead.deathStep BridgeDead.intro BridgeDeadInitFirstUpdate.axioms(1) BridgeDead_axioms_def InitUpdate_axioms LastUpdate_axioms notBridgeDead' reachable_step.hyps(1) reachable_step.prems(3) stateRootNonZero)
+  by (metis BridgeDeadInitFirstUpdate_def BridgeDead_axioms_def BridgeDead_def reachable_step.hyps(1) reachable_step.prems(5))
   interpret BDIFU: BridgeDeadInitFirstUpdate where contractsDead=contractsDead and contractsBD=contractsBD' and stepsBD=stepsBD
-    by (metis BD.BridgeDead_axioms BD.Init_BD.reachableInitI BridgeDead.stepsAllBD_def BridgeDeadInitFirstUpdate_def HashProofVerifier.InitFirstUpdateAxiomsInduction HashProofVerifier_axioms append_Cons append_is_Nil_conv list.distinct(1) reachable_step.hyps(2) reachable_step.prems(3))
+    by (metis BD.BridgeDead_axioms BD.Init_BD.reachableInitI BridgeDead.stepsAllBD_def BridgeDeadInitFirstUpdate_def HashProofVerifier.InitFirstUpdateAxiomsInduction HashProofVerifier_axioms append_Cons append_is_Nil_conv list.distinct(1) reachable_step.hyps(2) reachable_step.prems(5))
   interpret IFU: InitFirstUpdate where contractsI=contractsBD'' and stepsInit="step # BD.stepsAllBD"
-    by (metis BD.stepsAllBD_def BridgeDead.stepsAllBD_def BridgeDeadInitFirstUpdate_def append_Cons reachable_step.prems(3))
+    by (metis BD.stepsAllBD_def BridgeDead.stepsAllBD_def BridgeDeadInitFirstUpdate_def append_Cons reachable_step.prems(5))
 
   have *: "?W (stepsBD @ [stepDeath]) + ?N (stepsBD @ [stepDeath]) + ?B = ?C (stepsBD @ [stepDeath])"
     using reachable_step.IH
@@ -2613,6 +2756,8 @@ qed
 lemma withdrawnAmountInvariant:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
   shows "withdrawnAmount tokenDepositAddress token stepsAllBD + 
          nonWithdrawnNonBurnedClaimedBeforeAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD +
          burnedAmount bridgeAddress token stepsInit = 
@@ -2620,7 +2765,7 @@ lemma withdrawnAmountInvariant:
   unfolding stepsAllBD_def
   using withdrawnAmountInvariant'[OF assms]
   by simp
-  
+
 end
 
 
@@ -2854,7 +2999,7 @@ end
 context InitFirstUpdate
 begin
 
-theorem releasedInvariantBase:
+lemma releasedInvariantBase:
   shows "releasedAmount tokenDepositAddress token stepsInit +
          nonReleasedBurnsAmount tokenDepositAddress bridgeAddress token stepsInit stepsInit =
          burnedAmount bridgeAddress token stepsInit"
@@ -3023,6 +3168,11 @@ theorem tokenDepositBalanceBridgeNotDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "\<not> bridgeDead contractsLU tokenDepositAddress"
   assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   shows "tokenDepositBalance contractsLU token tokenDepositAddress =
          nonClaimedBeforeDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU +
          nonBurnedClaimedBeforeAmount bridgeAddress token stepsInit + 
@@ -3034,14 +3184,14 @@ proof-
   have "tokenDepositBalance contractsLU token tokenDepositAddress + 
         releasedAmount tokenDepositAddress token stepsAllLU = 
         depositedAmount tokenDepositAddress token stepsAllLU"
-    using InitFirstUpdate_LU.tokenDepositBalanceInvariant[OF assms(1)]
-    using canceledAmountBridgeNotDead[OF reachableInitLU assms(2), of token]
+    using InitFirstUpdate_LU.tokenDepositBalanceInvariant[OF assms(1) assms(4)]
+    using canceledAmountBridgeNotDead[OF reachableInitLU assms(2)]
     using withdrawnAmountBridgeNotDead[OF reachableInitLU assms(2), of token]
     by simp
   moreover
   have "nonBurnedClaimedBeforeAmount bridgeAddress token stepsInit + burnedAmount bridgeAddress token stepsInit =
         claimedBeforeDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllLU"
-    using InitFirstUpdate_LU.claimedBeforeDepositsAmountBridgeNotDead[of "stepsNoUpdate @ [UPDATE_step]" stepsInit token]
+    using InitFirstUpdate_LU.claimedBeforeDepositsAmountBridgeNotDead[of "stepsNoUpdate @ [UPDATE_step]" stepsInit token, OF _ assms(1) assms(3) _ assms(5-6)]
     using assms
     unfolding stepsAllLU_def
     by auto
@@ -3142,6 +3292,11 @@ begin
 theorem tokenDepositBalance:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalMinted contractsInit bridgeAddress token = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   shows "tokenDepositBalance contractsBD token tokenDepositAddress = 
          nonClaimedBeforeNonCanceledDepositsAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD + 
          nonWithdrawnNonBurnedClaimedBeforeAmount tokenDepositAddress bridgeAddress token stepsInit stepsAllBD +
@@ -3153,7 +3308,6 @@ theorem tokenDepositBalance:
   using releasedAmountInvariant[of token]
   using assms
   by simp
-
 end
 
 
@@ -3242,6 +3396,8 @@ lemma transferredAmountToConsTransfer [simp]:
 lemma accountBalanceStepsOther:
   assumes "reachable contracts contracts' steps" 
           "\<forall> step \<in> set steps. \<not> isCaller caller step"
+          "\<forall> step \<in> set steps. \<not> isAddress caller step"
+          "mintedUnique contracts bridgeAddress token"
   shows "accountBalance contracts' (mintedTokenB contracts bridgeAddress token) caller = 
          accountBalance contracts (mintedTokenB contracts bridgeAddress token) caller + 
          transferredAmountTo bridgeAddress token caller steps"
@@ -3256,9 +3412,10 @@ next
   proof (cases step)
     case (DEPOSIT address' caller' ID' token' amount')
     have "caller \<noteq> address'"
-      sorry
+      using reachable_step.prems(2) DEPOSIT
+      by force
     then show ?thesis
-      using DEPOSIT reachable_step
+      using DEPOSIT reachable_step.prems reachable_step
       using callDepositBalanceOfOther callDepositOtherToken
       by (smt (z3) Step.simps(15) executeStep.simps(1) isCaller.simps(1) list.set_intros(1) list.set_intros(2) senderMessage transferAmountToConsOther)
   next
@@ -3276,7 +3433,8 @@ next
   next
     case (RELEASE address' caller' ID' token' amount' proof')
     have "caller \<noteq> address'"
-      sorry
+      using reachable_step.prems(2) RELEASE
+      by force
     then show ?thesis
       using RELEASE reachable_step
       using callReleaseBalanceOfOther callReleaseOtherToken
@@ -3289,7 +3447,8 @@ next
   next
     case (CANCEL_WD address' caller' ID' token' amount' proof')
     have "caller \<noteq> address'"
-      sorry
+      using reachable_step.prems(2) CANCEL_WD
+      by force
     then show ?thesis
       using CANCEL_WD reachable_step
       using callCancelDepositWhileDeadBalanceOfOther callCancelDepositWhileDeadOtherToken 
@@ -3297,7 +3456,8 @@ next
   next
     case (WITHDRAW_WD address' caller' token' amount' proof')
     have "caller \<noteq> address'"
-      sorry
+      using reachable_step.prems(2) WITHDRAW_WD
+      by force
     then show ?thesis
       using WITHDRAW_WD reachable_step
       using callWithdrawWhileDeadBalanceOfOther callWithdrawWhileDeadOtherToken 
@@ -3318,7 +3478,9 @@ next
       next
         case False
         then have "mintedTokenB contracts bridgeAddress token \<noteq> mintedTokenB contracts address' token'"
-          sorry
+          using reachable_step.prems(3)
+          unfolding mintedUnique_def
+          by force
         then show ?thesis
           using TRANSFER reachable_step
           using  callTransferOtherToken
@@ -4472,6 +4634,10 @@ lemma userTokensInvariantBase:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
   assumes "\<not> bridgeDead contractsI tokenDepositAddress"
+
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   shows "accountBalance contractsI (mintedTokenTD contractsInit tokenDepositAddress token) caller + 
          nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsInit stepsInit + 
          nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsInit stepsInit + 
@@ -4513,15 +4679,19 @@ next
     have notDead: "\<not> bridgeDead contracts' tokenDepositAddress"
       by (meson reachable.intros reachableBridgeDead reachable_step.hyps(2) reachable_step.prems(3))
 
+    have noAction: "noActionOfToken (mintedTokenB contracts bridgeAddress token) steps"
+      using reachable_step.prems(5) noActionOfTokenCons by blast
 
-    note * = reachable_step.IH[OF reachable_step.prems(1-2) notDead IFU'.InitFirstUpdate_axioms]
- 
+    note * = reachable_step.IH[OF reachable_step.prems(1-2) notDead reachable_step.prems(4) noAction IFU'.InitFirstUpdate_axioms]
+
     show ?thesis
     proof (cases step)
       case (DEPOSIT address' caller' ID' token' amount')
 
       have "token' \<noteq> mintedTokenTD contracts tokenDepositAddress token"
-        sorry
+        using reachable_step.prems(5) DEPOSIT
+        unfolding noActionOfToken_def noDepositOfToken_def
+        by (metis IFU.mintedTokenITDB isDeposit.simps(1) list.set_intros(1))
       then have AB:
         "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
          accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
@@ -4555,14 +4725,21 @@ next
     next
       case (TRANSFER address' caller' receiver' token' amount')
 
-      have "caller' \<noteq> receiver'"
-        sorry
+      have transfer: 
+      "callTransfer contracts' address' caller' receiver' token' amount' = (Success, contracts'')"
+        using TRANSFER reachable_step.hyps
+        by auto
+      then have "caller' \<noteq> receiver'"
+        unfolding callTransfer_def transfer_def Let_def
+        by (auto split: option.splits prod.splits if_split_asm)
 
       show ?thesis
       proof (cases "address' = bridgeAddress \<and> token' = token")
         case False
         then have "mintedTokenB contracts' address' token' \<noteq> mintedTokenTD contracts tokenDepositAddress token"
-          sorry
+          using reachable_step.prems(4)
+          unfolding mintedUnique_def
+          by (metis IFU'.reachableInitI IFU.mintedTokenITDB reachableBridgeTokenPairs reachableITokenPairs)
         then have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller =
                    accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
           using TRANSFER reachable_step.hyps callTransferOtherToken[of contracts' address' caller' receiver' token' amount' contracts'' "mintedTokenB contracts' address' token'" "mintedTokenTD contracts tokenDepositAddress token"]
@@ -4638,7 +4815,9 @@ next
         next
           case False
           then have "mintedTokenTD contracts tokenDepositAddress token \<noteq> mintedTokenB contracts address' token'"
-            sorry
+            using reachable_step.prems(4)
+            unfolding mintedUnique_def
+            by (metis IFU.mintedTokenITDB)
           then show ?thesis
             using callClaimOtherToken[of contracts' address' "message caller' amount'"] reachable_step.hyps CLAIM
             by auto
@@ -4699,8 +4878,10 @@ next
         qed
       next
         case False
-        have "mintedTokenTD contracts tokenDepositAddress token \<noteq>  mintedTokenB contracts address' token'"
-          sorry
+        then have "mintedTokenTD contracts tokenDepositAddress token \<noteq>  mintedTokenB contracts address' token'"
+          using reachable_step.prems(4)
+          unfolding mintedUnique_def
+          by (metis IFU.mintedTokenITDB)
         then have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
                    accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
           using callWithdrawOtherToken[where token' = "mintedTokenTD contracts tokenDepositAddress token"] reachable_step.hyps BURN
@@ -4711,11 +4892,15 @@ next
       qed
     next
       case (RELEASE address' caller' ID' token' amount' proof')
+
+      have minted: "mintedTokenTD contracts tokenDepositAddress token \<noteq> token'"
+        using reachable_step.prems(5) RELEASE
+        unfolding noActionOfToken_def noReleaseOfToken_def
+        by (metis IFU.mintedTokenITDB isRelease.simps(1) list.set_intros(1))
+
       show ?thesis
       proof (cases "address' = tokenDepositAddress \<and> token' = token")
         case False
-        have minted: "mintedTokenTD contracts tokenDepositAddress token \<noteq> token'"
-          sorry
         have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
               accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
           using callReleaseOtherToken[OF minted]
@@ -4749,7 +4934,8 @@ next
             using True \<open>address' = tokenDepositAddress \<and> token' = token\<close> \<open>caller' = caller\<close>
             using reachable.reachable_step reachable_base by blast
           have "mintedTokenTD contracts tokenDepositAddress token \<noteq> token"
-            sorry
+            using minted \<open>address' = tokenDepositAddress \<and> token' = token\<close>
+            by simp
           then have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
                 accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
             using RELEASE reachable_step.hyps  callReleaseOtherToken
@@ -4773,7 +4959,9 @@ next
       next
         case False
         have "mintedTokenTD contracts tokenDepositAddress token \<noteq> token'"
-          sorry
+          using reachable_step.prems(5) CANCEL_WD
+          unfolding noActionOfToken_def noCancelOfToken_def
+          by (metis IFU.mintedTokenITDB isCancel.simps(1) list.set_intros(1))
         then have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
                    accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
           using callCancelDepositWhileDeadOtherToken[where token'="mintedTokenTD contracts tokenDepositAddress token" and token=token']
@@ -4795,7 +4983,9 @@ next
       next
         case False
         have "mintedTokenTD contracts tokenDepositAddress token \<noteq> token'"
-          sorry
+          using reachable_step.prems(5) WITHDRAW_WD
+          unfolding noActionOfToken_def noWithdrawOfToken_def
+          by (metis IFU.mintedTokenITDB isWithdraw.simps(1) list.set_intros(1))
         then have "accountBalance contracts'' (mintedTokenTD contracts tokenDepositAddress token) caller = 
               accountBalance contracts' (mintedTokenTD contracts tokenDepositAddress token) caller"
           using callWithdrawWhileDeadOtherToken[where token'="mintedTokenTD contracts tokenDepositAddress token" and token=token']
@@ -5004,6 +5194,10 @@ begin
 lemma userTokensInvariant:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
+
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   shows "nonWithdrawnBalanceBefore tokenDepositAddress bridgeAddress caller token contractsLastUpdate' contractsBD + 
          nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsInit stepsAllBD + 
          nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsInit stepsAllBD + 
@@ -5014,6 +5208,11 @@ lemma userTokensInvariant:
          depositedAmountTo tokenDepositAddress token caller stepsAllBD + 
          transferredAmountTo bridgeAddress token caller stepsInit" (is "?inv contractsBD stepsAllBD")
 proof-
+  have nA': "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) (UPDATE_step # stepsInit)"
+    using assms(4)
+    unfolding noActionOfToken_def noDepositOfToken_def noReleaseOfToken_def noCancelOfToken_def noWithdrawOfToken_def UPDATE_step_def
+    by auto
+  
   have notBridgeDeadLastUpdate: "\<not> bridgeDead contractsLastUpdate tokenDepositAddress"
     using callUpdateDeadState notBridgeDeadContractsLastUpdate' update by presburger
 
@@ -5021,7 +5220,7 @@ proof-
         accountBalance contractsLastUpdate' (mintedTokenTD contractsInit tokenDepositAddress token) caller"
     using callUpdateIERC20 update by presburger
   then have invLastUpdate: "?inv contractsLastUpdate ([UPDATE_step] @ stepsInit)"
-    using InitFirstUpdate_LastUpdate.userTokensInvariantBase[OF assms notBridgeDeadLastUpdate]
+    using InitFirstUpdate_LastUpdate.userTokensInvariantBase[OF assms(1-2) notBridgeDeadLastUpdate assms(3) nA']
     using Init_Update.nonWithdrawnBalanceBeforeBridgeNotDead[OF notBridgeDeadLastUpdate] mintedTokenITDB
     by (simp add: UPDATE_step_def)
 

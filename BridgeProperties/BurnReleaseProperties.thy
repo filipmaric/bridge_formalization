@@ -604,7 +604,16 @@ proof-
     by unfold_locales
 
   interpret IFU: InitFirstUpdate where contractsI=c1 and stepsInit=steps2
-    by (metis "*"(1) "*"(4) Init'_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Init_axioms.intro Init_def RELEASE_step_def Step.distinct(40) append.simps(2) firstUpdate last.simps last_append list.simps(3) stateRootInitNonZero)
+  proof
+    show "reachable contractsInit c1 steps2"
+      by (simp add: "*"(1))
+  next
+    show "steps2 \<noteq> [] \<and> last steps2 = UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRootInit"
+      by (metis "*"(4) RELEASE_step_def Step.distinct(40) append_is_Nil_conv firstUpdate last.simps last_append not_Cons_self2)
+  next
+    show "stateRootInit \<noteq> 0"
+      by (simp add: stateRootInitNonZero)
+  qed
 
   have "BURN_step' \<in> set steps2"
     using * IFU.burnBeforeRelease

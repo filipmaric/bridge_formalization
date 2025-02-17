@@ -132,16 +132,28 @@ end
 
 (* ------------------------------------------------------------------------------------ *)
 
+locale Addresses = HashProofVerifier + 
+  fixes isSmartContract :: "address \<Rightarrow> bool"
+  \<comment> \<open>smart contracts do not call for transactions\<close>
+  assumes smartContractsNoCalls: 
+    "\<And> address step contracts blockNum block. \<lbrakk> isSmartContract address; isCaller address step \<rbrakk> \<Longrightarrow> 
+         fst (executeStep contracts blockNum block step) \<noteq> Success"
+
 (*
    contractsInit
    properSetup
    <empty>
 *)
 
-locale Init' = StrongHashProofVerifier + 
+locale Init' = StrongHashProofVerifier + Addresses + 
   fixes tokenDepositAddress :: address
   fixes bridgeAddress :: address
   fixes contractsInit :: Contracts
+  \<comment> \<open>tokenDeposit and bridge are smart contracts\<close>
+  assumes isSmartContractTD: 
+    "isSmartContract tokenDepositAddress"
+  assumes isSmartContractB:
+    "isSmartContract bridgeAddress"
   \<comment> \<open>The operation starts from an initial state that is properly setup\<close>
   assumes properSetupInit [simp]:
     "properSetup contractsInit tokenDepositAddress bridgeAddress"
@@ -206,6 +218,20 @@ lemma mintedTokenBInitNonNone [simp]:
   shows "mintedTokenB contractsInit bridgeAddress token \<noteq> 0"
   using assms
   by (simp add: Let_def properToken_def)
+
+lemma notCallerTD:
+  assumes "reachable contractsInit contracts steps"
+  shows "\<forall> step \<in> set steps. \<not> isCaller tokenDepositAddress step"
+  using assms
+proof (induction contractsInit contracts steps rule: reachable.induct)
+  case (reachable_base contracts)
+  then show ?case
+    by simp
+next
+  case (reachable_step steps contracts'' contracts contracts' blockNum block step)
+  then show ?case
+    by (metis Addresses.smartContractsNoCalls Addresses_axioms fst_conv isSmartContractTD set_ConsD)
+qed
 
 end
 
@@ -418,24 +444,24 @@ begin
 
 lemma InitInduction [simp]:
   assumes "Init hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof generateClaimProof
-           verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit contractsI
+           verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof isSmartContract tokenDepositAddress bridgeAddress contractsInit contractsI
            (step # steps)"
   assumes "reachable contractsInit contractsI' steps"
   assumes "executeStep contractsI' blockNum block step = (Success, contractsI)"
   shows "Init hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof generateClaimProof
-         verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit contractsI' steps"
+         verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof isSmartContract tokenDepositAddress bridgeAddress contractsInit contractsI' steps"
   using assms
   by (simp add: Init_def Init_axioms_def)
 
 lemma InitFirstUpdateAxiomsInduction [simp]:
   assumes "InitFirstUpdate hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof
-     generateClaimProof verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit
+     generateClaimProof verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof isSmartContract tokenDepositAddress bridgeAddress contractsInit
      contractsI (step # steps) stateRootInit"
   assumes "reachable contractsInit contractsI' steps"
   assumes "executeStep contractsI' blockNum block step = (Success, contractsI)"
   assumes "steps \<noteq> []"
   shows "InitFirstUpdate hash2 hash3 generateStateRoot verifyDepositProof generateDepositProof verifyClaimProof
-      generateClaimProof verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof tokenDepositAddress bridgeAddress contractsInit
+      generateClaimProof verifyBalanceProof generateBalanceProof verifyBurnProof generateBurnProof isSmartContract tokenDepositAddress bridgeAddress contractsInit
       contractsI' steps stateRootInit"
   using assms
   unfolding InitFirstUpdate_def InitFirstUpdate_axioms_def

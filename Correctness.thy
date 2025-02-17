@@ -1,9 +1,9 @@
-theory Liveness
+theory Correctness
 imports BridgeProperties.TokenInvariants
 begin
 
 (**************************************************************************************************)
-section \<open>Liveness\<close>
+section \<open>Correctness theorems\<close>
 (**************************************************************************************************)
 
 context LastUpdate
@@ -57,10 +57,9 @@ proof-
               (lastStateB contractsLU bridgeAddress) proof"
     using \<open>sender msg' = sender msg\<close> depositLU lastStateBLU stateBridge_def
     by argo
-
   then have "fst (callClaim contractsLU bridgeAddress msg' ID token amount proof) = Success"
     using assms
-    by (smt (verit, ccfv_threshold) HashProofVerifier.callClaimI HashProofVerifier_axioms callDepositProperToken option.collapse properSetupLU properSetup_def properTokenReachable properToken_def reachableLastUpdate'LU stateBridge_def)
+    by (smt (verit, ccfv_threshold) callClaimI callDepositProperToken option.collapse properSetupLU properSetup_def properTokenReachable properToken_def reachableLastUpdate'LU stateBridge_def)
   then show ?thesis 
     unfolding Let_def proof_def
     by (metis eq_fst_iff)
@@ -109,6 +108,10 @@ theorem releasePossibleAfterBurnAndUpdateBridgeNotDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
 
+  assumes "tokenNotMinted contractsInit token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   \<comment> \<open>A burn is successfully made\<close>
   assumes "BURN bridgeAddress caller ID token amount \<in> set stepsInit"
   \<comment> \<open>the bridge is not dead in the reached state\<close>
@@ -139,7 +142,7 @@ next
   proof-
     have "?BURN_step \<in> set (burns bridgeAddress token stepsInit)"
       unfolding nonReleasedBurns_def
-      using assms(3)
+      using assms(6)
       by (simp add: burns_def)
     moreover
     have "\<not> isReleasedID tokenDepositAddress token ID stepsAllLU"
@@ -164,7 +167,7 @@ next
     unfolding nonReleasedBurnsAmount_def
     by (simp add: sum_list_map_remove1)
   then show "amount \<le> accountBalance contractsLU token tokenDepositAddress"
-    using tokenDepositBalanceBridgeNotDead[OF assms(1) assms(4) assms(2)]
+    using tokenDepositBalanceBridgeNotDead[OF assms(1) assms(7) assms(2) assms(3-5)]
     by simp
 next
   show "getReleaseTD contractsLU tokenDepositAddress ID = False"
@@ -198,7 +201,7 @@ next
       by simp
     moreover
     have "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
-      by (metis assms(4) reachableDeadState reachableLastUpdate'LU)
+      by (metis assms(7) reachableDeadState reachableLastUpdate'LU)
     then have "snd (lastValidStateTD contractsLastUpdate tokenDepositAddress) = stateRoot"
       using callUpdateBridgeNotDeadLastValidState properSetupUpdate' 
       by (smt (verit, ccfv_SIG) properSetup_def update)
@@ -221,6 +224,10 @@ text \<open>After a successful burn and a state update (while the bridge is aliv
 theorem releasePossibleAfterBurnAndUpdateBridgeDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+          "mintedUnique contractsInit bridgeAddress token"
+          "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
 
   \<comment> \<open>A burn is successfully made\<close>
   assumes "BURN bridgeAddress caller ID token amount \<in> set stepsInit"
@@ -253,7 +260,7 @@ next
   proof-
     have "?BURN_step \<in> set (burns bridgeAddress token stepsInit)"
       unfolding nonReleasedBurns_def
-      using assms(3)
+      using assms(6)
       by (simp add: burns_def)
     moreover
     have "\<not> isReleasedID tokenDepositAddress token ID stepsAllBD"
@@ -280,7 +287,7 @@ next
     by (simp add: sum_list_map_remove1)
   then show "amount \<le> accountBalance contractsBD token tokenDepositAddress"
     using tokenDepositBalance
-    using assms(1) assms(2) le_add2
+    using assms le_add2
     by presburger
 next
   show "getReleaseTD contractsBD tokenDepositAddress ID = False"
@@ -324,6 +331,11 @@ theorem cancelPossible:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   \<comment> \<open>Initially there are no minted tokens\<close>
   assumes "totalMinted contractsInit bridgeAddress token = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+          "mintedUnique contractsInit bridgeAddress token"
+          "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   \<comment> \<open>User has made a deposit that he has not claimed before the bridge died\<close>
   assumes "DEPOSIT tokenDepositAddress caller ID token amount \<in> set stepsAllBD"
   assumes "\<not> isClaimedID bridgeAddress token ID stepsInit"
@@ -439,6 +451,11 @@ theorem withdrawPossible:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   \<comment> \<open>Initially there are no minted tokens\<close>
   assumes "totalMinted contractsInit bridgeAddress token = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+          "mintedUnique contractsInit bridgeAddress token"
+          "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   \<comment> \<open>Caller had sufficient balance before the bridge died\<close>
   assumes "accountBalance contractsLastUpdate' (mintedTokenB contractsInit bridgeAddress token) (sender msg) = amount"
   \<comment> \<open>Caller has not yet withdrawn his balance\<close>
@@ -502,8 +519,8 @@ proof-
               using callBalanceOf by blast
           next
             show "accountBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) (sender msg) = 0"
-              by fact              
-          qed
+              by fact
+          qed (simp_all add: assms)
           moreover 
           have "\<nexists> amount proof. WITHDRAW_WD tokenDepositAddress (sender msg) token amount proof \<in> set stepsAllBD"
             using \<open>getTokenWithdrawnTD contractsBD tokenDepositAddress (hash2 (sender msg) token) = False\<close>
@@ -540,7 +557,7 @@ proof-
         by (metis ERC20StateMintedTokenINotNone Init_BD.mintedTokenTDI option.collapse)
     next
       show "accountBalance contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token) (sender msg) = amount"
-        by (metis Init_BD.mintedTokenTDI assms(3) mintedTokenITDB)
+        by (metis Init_BD.mintedTokenTDI assms(6) mintedTokenITDB)
     next
       show "generateBalanceProof contractsLastUpdate' (mintedTokenTD contractsBD tokenDepositAddress token) (sender msg) amount = Proof"
         unfolding Proof_def
@@ -584,6 +601,11 @@ begin
 theorem paybackPossibleBridgeDead:
   assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
   assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
+
+  assumes "tokenNotMinted contractsInit token"
+  assumes "mintedUnique contractsInit bridgeAddress token"
+  assumes "noActionOfToken (mintedTokenB contractsInit bridgeAddress token) stepsInit"
+
   assumes "caller \<noteq> tokenDepositAddress"
   shows "\<exists> steps. (\<forall> step \<in> set steps. isCaller caller step) \<and>
                   executableSteps caller contractsBD steps \<and>
@@ -1223,7 +1245,7 @@ proof-
         ultimately
         show ?thesis
           using BDIFU.userTokensInvariant[OF assms(1), of caller] 
-          using pbC pbR
+          using pbC pbR assms(4-5)
           unfolding allTokensPaidBackEq_def
           by (simp add: paidBackAmountFrom_def)
       qed
@@ -1316,587 +1338,12 @@ proof-
         show ?thesis
           using noDeposits
           using BDIFU.userTokensInvariant[OF assms(1), of caller] 
-          using pbC pbR
+          using pbC pbR assms(4-5)
           unfolding allTokensPaidBackEq_def
           by (simp add: paidBackAmountFrom_def)
       qed
     qed
   qed
-qed
-
-end
-
-context HashProofVerifier
-begin
-
-lemma regularUpdates:
-  shows "\<exists> contracts' steps. 
-            reachable contracts contracts' steps \<and>
-            (\<nexists> step. step \<in> set steps \<and> isCaller caller step) \<and>
-            (bridgeDead contracts' tokenDepositAddress \<or> 
-             (\<exists> stateRoot. UPDATE (stateOracleAddressTD contracts tokenDepositAddress) stateRoot \<in> set steps))"
-  sorry
-
-end
-
-
-context InitFirstUpdateLastUpdate
-begin
-
-theorem paybackPossibleLemma1:
-  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
-  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
-  assumes "caller \<noteq> tokenDepositAddress"
-  assumes steps0: "reachableOtherCaller caller contractsLU contracts0 steps0"
-  assumes "UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot' \<in> set steps0"
-  assumes "\<not> bridgeDead contracts0 tokenDepositAddress"
-  shows "\<exists> steps. (\<forall> step \<in> set steps. isCaller caller step) \<and>
-                  (\<forall> contracts' stepListsOther. 
-                     reachableInterleaved caller contracts0 contracts' steps stepListsOther \<and>
-                     \<not> bridgeDead contracts' tokenDepositAddress \<longrightarrow>
-                       allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-                          (interleaveSteps steps stepListsOther @ steps0 @ stepsAllLU) 
-                          stepsAllLU) \<and>
-                  (\<forall> contracts' stepListsOther steps1 steps2.
-                     steps = steps1 @ steps2 \<and>
-                     reachableInterleaved caller contracts0 contracts' steps1 stepListsOther \<and>
-                     bridgeDead contracts' tokenDepositAddress \<longrightarrow>
-                       (\<exists> steps'. executableSteps caller contracts' steps' \<and>
-                         (\<forall> contracts'' stepListsOther'. 
-                          reachableInterleaved caller contracts' contracts'' steps' stepListsOther' \<longrightarrow>
-                          allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-                            (interleaveSteps steps' stepListsOther' @ interleaveSteps steps1 stepListsOther @ steps0 @ stepsAllLU)
-                            stepsAllLU)))" (is "\<exists> steps. ?P steps \<and> ?C1 steps \<and> ?C2 steps")
-proof-
-  have initBalance: "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
-    by (metis assms(1) assms(2) finiteBalances_def mintedTokenITDB properTokenFiniteBalancesMinted totalBalanceZero)
-
-  have "\<not> bridgeDead contractsLU tokenDepositAddress"
-    using \<open>\<not> bridgeDead contracts0 tokenDepositAddress\<close> reachableBridgeDead steps0
-    unfolding reachableOtherCaller_def
-    by blast
-
-  let ?SO = "stateOracleAddressB contractsInit bridgeAddress"
-  obtain stateRoot' where "UPDATE ?SO stateRoot' \<in> set steps0"
-    using assms
-    by blast
-
-  obtain contractsU' stepsU1 stepsU2 stateRoot0 
-  where U: "reachable contractsLU contractsU' stepsU1"
-        "stateRoot0 = generateStateRoot contractsU'"
-        "steps0 = stepsU2 @ [UPDATE ?SO stateRoot0] @ stepsU1"
-        "reachable contractsU' contracts0 (stepsU2 @ [UPDATE ?SO stateRoot0])"
-        "\<nexists> stateRoot'. UPDATE ?SO stateRoot' \<in> set stepsU2"
-    using lastUpdateHappenedSteps' steps0 \<open>UPDATE ?SO stateRoot' \<in> set steps0\<close>
-    unfolding reachableOtherCaller_def
-    by metis
-
-  obtain contractsU where "reachable contractsU' contractsU [UPDATE ?SO stateRoot0]"
-                          "reachable contractsU contracts0 stepsU2"
-    using \<open>reachable contractsU' contracts0 (stepsU2 @ [UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot0])\<close> reachableAppend 
-    by blast
-
-  define NCDepositSteps where "NCDepositSteps = nonClaimedBeforeNonCanceledDepositsTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU"
-  define CLAIM_fun where "CLAIM_fun = (\<lambda> step. CLAIM bridgeAddress caller (DEPOSIT_id step) token (DEPOSIT_amount step) (generateDepositProof contractsU (DEPOSIT_id step)))"
-  define CLAIM_steps where "CLAIM_steps = map CLAIM_fun NCDepositSteps"
-
-  obtain ID where "getWithdrawalB contracts0 bridgeAddress ID = 0"
-    sorry
-
-  define amount where "amount = accountBalance contracts0 (mintedTokenTD contractsInit tokenDepositAddress token) caller + 
-                                sum_list (map DEPOSIT_amount NCDepositSteps)"
-  define BURN_step where "BURN_step = BURN bridgeAddress caller ID token amount"
-
-  define NRBurnSteps where
-    "NRBurnSteps = BURN_step # nonReleasedBurnsTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU"
-  define RELEASE_fun where 
-    "RELEASE_fun = (\<lambda> step. RELEASE tokenDepositAddress caller (BURN_id step) token (BURN_amount step)
-                            (generateBurnProof contractsU (BURN_id step)))"
-  define RELEASE_steps where
-    "RELEASE_steps = map RELEASE_fun NRBurnSteps"
-
-  let ?steps = "RELEASE_steps @ [BURN_step] @ CLAIM_steps"
-
-  have "?P ?steps"
-    unfolding RELEASE_steps_def BURN_step_def CLAIM_steps_def RELEASE_fun_def CLAIM_fun_def
-    by auto
-
-  moreover
-
-  have "?C1 ?steps"
-  proof (rule allI, rule allI, rule impI, (erule conjE)+)
-    fix contracts' stepListsOther
-    assume r': "reachableInterleaved caller contracts0 contracts' ?steps stepListsOther" and
-      notDead: "\<not> bridgeDead contracts' tokenDepositAddress"
-    let ?stepsAll = "interleaveSteps ?steps stepListsOther @ steps0 @ stepsAllLU"
-
-    have depositsTo: "depositsTo tokenDepositAddress token caller ?stepsAll = depositsTo tokenDepositAddress token  caller stepsAllLU"
-    proof-
-      have "depositsTo tokenDepositAddress token caller steps0 = []"
-        using steps0 noIsStepCallerDepositsTo unfolding reachableOtherCaller_def
-        by blast
-      moreover
-      have "depositsTo tokenDepositAddress token caller ?steps = []"
-        unfolding RELEASE_steps_def BURN_step_def CLAIM_steps_def RELEASE_fun_def CLAIM_fun_def
-        by (auto simp add: depositsTo_def)
-      then have "depositsTo tokenDepositAddress token caller (interleaveSteps ?steps stepListsOther) = []"
-        using depositsToInterleaveStepsOther
-        by (metis reachableInterleavedLength reachableInterleavedOtherCaller r')
-      ultimately
-      show ?thesis
-        by simp
-    qed
-
-    have paidBackAmountFrom: 
-         "paidBackAmountFrom tokenDepositAddress token caller ?stepsAll \<ge> 
-          paidBackAmountFrom tokenDepositAddress token caller stepsAllLU +
-          nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU + 
-          nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU + 
-          accountBalance contractsLU (mintedTokenTD contractsInit tokenDepositAddress token) caller"
-    proof-
-      have "paidBackAmountFrom tokenDepositAddress token caller ?steps =
-            nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU + 
-            amount"
-        unfolding paidBackAmountFrom_def RELEASE_steps_def RELEASE_fun_def BURN_step_def CLAIM_steps_def CLAIM_fun_def releasedAmountFrom_def releasesFrom_def withdrawnAmountFrom_def withdrawalsFrom_def canceledAmountFrom_def cancelsFrom_def nonReleasedBurnedAmountTo_def NRBurnSteps_def
-        by (simp add: comp_def)
-
-      moreover
-
-      have "amount = accountBalance contracts0 (mintedTokenTD contractsInit tokenDepositAddress token) caller + 
-                     nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU"
-        unfolding amount_def nonClaimedBeforeNonCanceledDepositsAmountTo_def NCDepositSteps_def
-        by simp
-
-      moreover
-
-      have "accountBalance contracts0 (mintedTokenTD contractsInit tokenDepositAddress token) caller \<ge>
-            accountBalance contractsLU (mintedTokenTD contractsInit tokenDepositAddress token) caller"
-        using accountBalanceStepsOther
-        using steps0
-        unfolding reachableOtherCaller_def
-        by (smt (verit, ccfv_threshold) InitFirstUpdate_LU.mintedTokenBI le_cases3 mintedTokenITDB trans_le_add1)
-
-      moreover
-
-      have "paidBackAmountFrom tokenDepositAddress token caller steps0 = 0"
-        using steps0 noIsStepCallerPaidBackAmountFrom 
-        unfolding reachableOtherCaller_def
-        by force
-      then have "paidBackAmountFrom tokenDepositAddress token caller ?stepsAll = 
-            paidBackAmountFrom tokenDepositAddress token caller stepsAllLU +
-            paidBackAmountFrom tokenDepositAddress token caller ?steps"
-        using paidBackAmountFromInterleaveStepsOther[OF reachableInterleavedLength[OF r'], of caller tokenDepositAddress token] reachableInterleavedOtherCaller[OF r']
-        by auto
-
-      ultimately
-
-      show ?thesis
-        by linarith
-    qed
-
-    have withdrawnLU:
-      "withdrawnAmountFrom tokenDepositAddress token caller stepsAllLU = 0" 
-      using withdrawnAmountFromBridgeDead
-      using \<open>\<not> bridgeDead contractsLU tokenDepositAddress\<close> reachableInitLU
-      by blast
-
-    have canceledLU:
-      "canceledAmountFrom tokenDepositAddress token caller stepsAllLU = 0"
-      using canceledAmountFromBridgeDead
-      using \<open>\<not> bridgeDead contractsLU tokenDepositAddress\<close> reachableInitLU
-      by blast
-
-    show "allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-           ?stepsAll stepsAllLU"
-    proof-
-      have "paidBackAmountFrom tokenDepositAddress token caller ?stepsAll +
-            transferredAmountFrom bridgeAddress token caller stepsAllLU \<ge> 
-            accountBalance contractsLU (mintedTokenTD contractsInit tokenDepositAddress token) caller + 
-            nonClaimedBeforeNonCanceledDepositsAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU +
-            nonReleasedBurnedAmountTo tokenDepositAddress bridgeAddress token caller stepsAllLU stepsAllLU + 
-            releasedAmountFrom tokenDepositAddress token caller stepsAllLU  + 
-            withdrawnAmountFrom tokenDepositAddress token caller stepsAllLU  + 
-            canceledAmountFrom tokenDepositAddress token caller stepsAllLU +
-            transferredAmountFrom bridgeAddress token caller stepsAllLU"
-        using paidBackAmountFrom  withdrawnLU canceledLU
-        unfolding paidBackAmountFrom_def
-        by linarith
-      then have "paidBackAmountFrom tokenDepositAddress token caller ?stepsAll +
-            transferredAmountFrom bridgeAddress token caller stepsAllLU \<ge> 
-            depositedAmountTo tokenDepositAddress token caller stepsAllLU + 
-            transferredAmountTo bridgeAddress token caller stepsAllLU"
-        using InitFirstUpdate_LU.userTokensInvariantBase[OF assms(1) initBalance \<open>\<not> bridgeDead contractsLU tokenDepositAddress\<close>]
-        by simp
-      then show ?thesis
-        using depositsTo
-        unfolding depositedAmountTo_def allTokensPaidBack_def
-        by simp
-    qed
-  qed
-
-  moreover
-
-  have "?C2 ?steps"
-  proof ((rule allI)+, rule impI, (erule conjE)+)
-    fix contracts' stepListsOther steps1 steps2
-    assume "?steps = steps1 @ steps2"
-    assume "reachableInterleaved caller contracts0 contracts' steps1 stepListsOther"
-    assume "bridgeDead contracts' tokenDepositAddress"
-
-    obtain stepsInit' stateRoot' stepsNoUpdate' stepDeath' stepsBD' blockLastUpdate' blockNumLastUpdate'
-           contractsLastUpdate'1 contractsLastUpdate1 contractsDead'1 contractsDead1
-           where **: "interleaveSteps steps1 stepListsOther @ steps0 @ stepsAllLU = 
-                      stepsBD' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot'] @ stepsInit'"
-               "reachable contractsInit contractsLastUpdate'1 stepsInit'" 
-               "callUpdate contractsLastUpdate'1 ?SO blockLastUpdate' blockNumLastUpdate' stateRoot' = (Success, contractsLastUpdate1)"
-               "reachable contractsLastUpdate1 contractsDead'1 stepsNoUpdate'"
-               "\<nexists>stateRoot'. UPDATE ?SO stateRoot' \<in> set stepsNoUpdate'"
-               "reachable contractsDead'1 contractsDead1 [stepDeath']"
-               "reachable contractsDead1 contracts' stepsBD'"
-               "\<not> bridgeDead contractsDead'1 tokenDepositAddress"
-               "bridgeDead contractsDead1 tokenDepositAddress"
-        sorry
-    interpret BD: BridgeDead
-      where contractsLastUpdate'=contractsLastUpdate'1 and contractsLastUpdate=contractsLastUpdate1 and
-            contractsDead'=contractsDead'1 and contractsDead=contractsDead1 and contractsBD=contracts' and stepDeath=stepDeath' and
-            stepsInit=stepsInit' and stateRoot=stateRoot' and blockLastUpdate=blockLastUpdate' and blockNumLastUpdate=blockNumLastUpdate'
-            and stepsNoUpdate=stepsNoUpdate' and stepsBD=stepsBD'
-    proof
-      show "properSetup contractsLastUpdate'1 tokenDepositAddress bridgeAddress"
-        using \<open>reachable contractsInit contractsLastUpdate'1 stepsInit'\<close> by auto
-    next
-      show "let stateOracleAddress = stateOracleAddressB contractsLastUpdate'1 bridgeAddress
-            in callUpdate contractsLastUpdate'1 stateOracleAddress blockLastUpdate' blockNumLastUpdate' stateRoot' = (Success, contractsLastUpdate1)"
-        using **
-        by (metis reachableBridgeStateOracle)
-    next
-      show "stateRoot' \<noteq> 0"
-        using "**"(3) callUpdateStateRootNonZero by blast
-    next
-      show "let stateOracleAddress = stateOracleAddressB contractsLastUpdate1 bridgeAddress
-             in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set stepsNoUpdate'"
-        using "**"(2) "**"(3) "**"(5) by auto
-    qed fact+
-
-    interpret BDIFU: BridgeDeadInitFirstUpdate
-      where contractsLastUpdate'=contractsLastUpdate'1 and contractsLastUpdate=contractsLastUpdate1 and
-            contractsDead'=contractsDead'1 and contractsDead=contractsDead1 and contractsBD=contracts' and stepDeath=stepDeath' and
-            stepsInit=stepsInit' and stateRoot=stateRoot' and blockLastUpdate=blockLastUpdate' and blockNumLastUpdate=blockNumLastUpdate'
-            and stepsNoUpdate=stepsNoUpdate' and stepsBD=stepsBD'
-    proof
-      show "stateRootInit \<noteq> 0"
-        by (simp add: stateRootInitNonZero)
-    next
-      show "BD.stepsAllBD \<noteq> [] \<and> last BD.stepsAllBD = UPDATE ?SO stateRootInit"
-        unfolding BD.stepsAllBD_def
-        using **(1)
-        by (metis BD.UPDATE_step_def BD.stateOracleAddressBI InitFirstUpdate_LU.firstUpdate concat.simps(1) concat_eq_append_conv last_appendR)
-    qed
-
-    obtain stepsD where *: 
-      "\<forall>step\<in>set stepsD. isCaller caller step"
-      "executableSteps caller contracts' stepsD" 
-      "\<forall>contracts'' stepListsOther''. reachableInterleaved caller contracts' contracts'' stepsD stepListsOther'' \<longrightarrow> 
-           allTokensPaidBackEq tokenDepositAddress bridgeAddress token caller 
-             (interleaveSteps stepsD stepListsOther'' @ BD.stepsAllBD) stepsInit'"
-      using BDIFU.paybackPossibleBridgeDead[OF assms(1-3)]
-      by blast
-        
-    show "\<exists> steps'. executableSteps caller contracts' steps' \<and>
-              (\<forall> contracts'' stepListsOther'. 
-                reachableInterleaved caller contracts' contracts'' steps' stepListsOther' \<longrightarrow>
-                allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-                  (interleaveSteps steps' stepListsOther' @ interleaveSteps steps1 stepListsOther @ steps0 @ stepsAllLU)
-                  stepsAllLU)"
-    proof (rule_tac x="stepsD" in exI, safe)
-      show "executableSteps caller contracts' stepsD"
-        by fact
-    next
-      fix contracts'' stepListsOther'
-      assume r': "reachableInterleaved caller contracts' contracts'' stepsD stepListsOther'"
-      let ?stepsAll = "interleaveSteps stepsD stepListsOther' @ interleaveSteps steps1 stepListsOther @ steps0 @ stepsAllLU"
-
-      obtain s where "stepsInit' = s @ stepsAllLU"
-      proof-
-        have *: "\<And> a b x y. x @ a = y @ b \<Longrightarrow> a = b \<or> (\<exists> s. s \<noteq> [] \<and> (a = s @ b \<or> b = s @ a))"
-          by (metis append.left_neutral append_eq_append_conv2)
-        from *[where a1=stepsAllLU and b1=stepsInit'] **(1) 
-        have "stepsInit' = stepsAllLU \<or> (\<exists> s. s \<noteq> [] \<and> (stepsInit' = s @ stepsAllLU \<or> stepsAllLU = s @ stepsInit'))"
-          by (metis append.assoc)
-        moreover
-        {
-          assume "\<exists> s. s \<noteq> [] \<and> stepsAllLU = s @ stepsInit'"
-          then obtain s where s:
-            "s \<noteq> []" "stepsAllLU = s @ stepsInit'"
-            "interleaveSteps steps1 stepListsOther @ steps0 @ s =
-             stepsBD' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot']"
-            using **(1)
-            by auto
-          then obtain s' where 
-            "steps0 @ s = s' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot'] \<or>
-            [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot'] = s' @ steps0 @ s"
-            using *[where a1="steps0 @ s" and b1="[stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot']"]
-            by (metis append_self_conv2)
-          then have False
-          proof
-            assume "steps0 @ s = s' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot']"
-            then have "s' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot'] @ stepsInit' = 
-                       steps0 @ stepsAllLU"
-              using s
-              by auto
-            then have "reachable contractsInit contracts0 (s' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE ?SO stateRoot'] @ stepsInit')"
-              using reachableInitLU steps0 reachableTrans
-              unfolding reachableOtherCaller_def
-              by auto
-            then obtain contractsD where 
-              "reachable contractsInit contractsD (stepDeath' # BD.stepsBeforeDeath)"
-              "reachable contractsD contracts0 s'"
-              unfolding BD.stepsBeforeDeath_def BD.UPDATE_step_def
-              by (metis BD.stateOracleAddressBI append.left_neutral append_Cons reachableAppend)
-            then have "\<not> bridgeDead contractsD tokenDepositAddress"
-              using \<open>\<not> bridgeDead contracts0 tokenDepositAddress\<close> reachableBridgeDead 
-              by blast
-            then show False
-              using \<open>reachable contractsInit contractsD (stepDeath' # BD.stepsBeforeDeath)\<close>
-              using BDIFU.InitFirstUpdate_Dead.reachableInitI \<open>bridgeDead contractsDead1 tokenDepositAddress\<close>
-              using reachableSameStepsBridgeDead
-              by blast
-          next
-            assume "[stepDeath'] @ stepsNoUpdate' @ [UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot'] = s' @ steps0 @ s"
-            then have "[stepDeath'] @ stepsNoUpdate' = s' @ steps0 @ butlast s"
-              using \<open>s \<noteq> []\<close>
-              by (metis append.assoc butlast_append butlast_snoc)
-            then have "UPDATE ?SO stateRoot0 \<in> set ([stepDeath'] @ stepsNoUpdate')"
-                using U(3)
-              by auto
-            then show False
-              using **(5) BD.stepDeathNoUpdate
-              unfolding Let_def
-              by (metis append_Cons append_Nil insert_iff list.set(2))
-          qed
-        }
-        ultimately
-        show ?thesis
-          using that
-          by blast
-      qed
-      then have "set s \<subseteq> set (interleaveSteps steps1 stepListsOther @ steps0)"
-        using **(1)
-        by auto
-      have "transferredAmountFrom bridgeAddress token caller s = 0"
-      proof-
-        have "transferredAmountFrom bridgeAddress token caller steps0 = 0"
-          using steps0 noIsStepCallerTransferredAmountFrom
-          unfolding reachableOtherCaller_def
-          by blast
-        moreover
-        have "transferredAmountFrom bridgeAddress token caller ?steps = 0"
-          unfolding CLAIM_steps_def BURN_step_def RELEASE_steps_def CLAIM_fun_def RELEASE_fun_def
-          by (auto simp add: transferredAmountFrom_def)
-        then have "transferredAmountFrom bridgeAddress token caller steps1 = 0"
-          by (subst (asm) \<open>?steps = steps1 @ steps2\<close>) auto
-        then have "transferredAmountFrom bridgeAddress token caller (interleaveSteps steps1 stepListsOther) = 0"
-          using \<open>reachableInterleaved caller contracts0 contracts' steps1 stepListsOther\<close> transferredAmountFromInterleaveStepsOther
-          using reachableInterleavedLength reachableInterleavedOtherCaller
-           by metis
-        ultimately
-        have "transferredAmountFrom bridgeAddress token caller (interleaveSteps steps1 stepListsOther @ steps0) = 0"
-          by simp
-        moreover
-        have "set (filter (isTransferFrom bridgeAddress token caller) s) \<subseteq>
-              set (filter (isTransferFrom bridgeAddress token caller) (interleaveSteps steps1 stepListsOther @ steps0))"
-          using \<open>set s \<subseteq> set (interleaveSteps steps1 stepListsOther @ steps0)\<close>
-          by fastforce
-        then have "set (map TRANSFER_amount (filter (isTransferFrom bridgeAddress token caller) s)) \<subseteq>
-                   set (map TRANSFER_amount (filter (isTransferFrom bridgeAddress token caller) (interleaveSteps steps1 stepListsOther @ steps0)))"
-          by fastforce
-        ultimately
-        show ?thesis
-          unfolding transferredAmountFrom_def
-          by auto
-      qed
-
-      then have "transferredAmountFrom bridgeAddress token caller stepsInit' = 
-                 transferredAmountFrom bridgeAddress token caller stepsAllLU"
-        using \<open>stepsInit' = s @ stepsAllLU\<close>
-        by simp
-
-      moreover
-      have "transferredAmountTo bridgeAddress token caller stepsInit' \<ge>
-            transferredAmountTo bridgeAddress token caller stepsAllLU"
-        using \<open>stepsInit' = s @ stepsAllLU\<close>
-        by simp
-
-      ultimately
-      show "allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-              ?stepsAll stepsAllLU"
-        using *(3)[rule_format, OF r'] **(1)
-        unfolding BD.stepsAllBD_def stepsAllLU_def
-        unfolding allTokensPaidBackEq_def allTokensPaidBack_def
-        using BD.UPDATE_step_def BD.stateOracleAddressBI nat_add_left_cancel_le properSetupInit properSetup_stateOracleAddress 
-        by auto
-    qed
-  qed
-
-  ultimately
-
-  show ?thesis
-    by blast
-qed
-
-theorem paybackPossibleLemma2:
-  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
-  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
-  assumes "caller \<noteq> tokenDepositAddress"
-  assumes "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
-  assumes steps0: "reachableOtherCaller caller contractsLU contracts0 steps0"
-  assumes "UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot' \<in> set steps0"
-  assumes "bridgeDead contracts0 tokenDepositAddress"
-  shows "\<exists> steps. executableSteps caller contracts0 steps \<and>
-               (\<forall> contracts' stepListsOther. 
-                   reachableInterleaved caller contracts0 contracts' steps stepListsOther \<longrightarrow>
-                     allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-                       (interleaveSteps steps stepListsOther @ steps0 @ stepsAllLU) 
-                          stepsAllLU)"
-proof-
-  have initBalance: "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
-    by (metis assms(1) assms(2) finiteBalances_def mintedTokenITDB properTokenFiniteBalancesMinted totalBalanceZero)
-
-  let ?SO = "stateOracleAddressB contractsInit bridgeAddress"
-  obtain stateRoot' where "UPDATE ?SO stateRoot' \<in> set steps0"
-    using assms
-    by blast
-
-  obtain contractsLastUpdate1' steps1 steps2 stateRoot0 
-  where "reachable contractsLU contractsLastUpdate1' steps1"
-        "stateRoot0 = generateStateRoot contractsLastUpdate1'"
-        "steps0 = steps2 @ [UPDATE ?SO stateRoot0] @ steps1"
-        "reachable contractsLastUpdate1' contracts0 (steps2 @ [UPDATE ?SO stateRoot0])"
-        "\<nexists> stateRoot'. UPDATE ?SO stateRoot' \<in> set steps2"
-    using lastUpdateHappenedSteps' steps0 \<open>UPDATE ?SO stateRoot' \<in> set steps0\<close>
-    unfolding reachableOtherCaller_def
-    by metis
-
-  obtain contractsLastUpdate1 block1 blockNum1 where
-    "executeStep contractsLastUpdate1' blockNum1 block1 (UPDATE ?SO stateRoot0) = (Success, contractsLastUpdate1)"
-    "reachable contractsLastUpdate1 contracts0 steps2"
-    using \<open>reachable contractsLastUpdate1' contracts0 (steps2 @ [UPDATE ?SO stateRoot0])\<close>
-    by (meson reachableAppend reachableSingleton)
-
-  obtain contractsDead' contractsDead stepsNoUpdate' stepDeath' stepsBD' where *:
-    "steps2 = stepsBD' @ [stepDeath'] @ stepsNoUpdate'"
-    "reachable contractsLastUpdate1 contractsDead' stepsNoUpdate'"
-    "reachable contractsDead' contractsDead [stepDeath']"
-    "reachable contractsDead contracts0 stepsBD'"
-    "let stateOracleAddress = stateOracleAddressB contractsLastUpdate1 bridgeAddress
-      in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set stepsNoUpdate'"
-    "\<not> bridgeDead contractsDead' tokenDepositAddress"
-    "reachable contractsDead' contractsDead [stepDeath']"
-    "bridgeDead contractsDead tokenDepositAddress"
-    sorry
-
-  interpret BD: BridgeDead where
-    stepsInit="steps1@stepsAllLU" and 
-    contractsLastUpdate'=contractsLastUpdate1' and stateRoot=stateRoot0 and contractsLastUpdate=contractsLastUpdate1 and blockLastUpdate=block1 and blockNumLastUpdate=blockNum1 and
-    contractsDead'=contractsDead' and contractsDead=contractsDead and stepDeath=stepDeath' and
-    contractsBD=contracts0 and stepsBD=stepsBD' and stepsNoUpdate=stepsNoUpdate'
-  proof
-    show "stateRoot0 \<noteq> 0"
-      using \<open>executeStep contractsLastUpdate1' blockNum1 block1 (UPDATE ?SO stateRoot0) = (Success, contractsLastUpdate1)\<close>
-      by (simp add: callUpdateStateRootNonZero)
-  next
-    show "reachable contractsInit contractsLastUpdate1' (steps1 @ stepsAllLU)"
-      using \<open>reachable contractsLU contractsLastUpdate1' steps1\<close> reachableInitLU reachableTrans
-      by blast
-  next
-    show "properSetup contractsLastUpdate1' tokenDepositAddress bridgeAddress"
-      using \<open>reachable contractsLU contractsLastUpdate1' steps1\<close> by auto
-  next
-    show "let stateOracleAddress = stateOracleAddressB contractsLastUpdate1' bridgeAddress
-           in callUpdate contractsLastUpdate1' stateOracleAddress block1 blockNum1 stateRoot0 = (Success, contractsLastUpdate1)"
-      by (metis HashProofVerifier.executeStep.simps(6) HashProofVerifier_axioms InitFirstUpdate_LU.stateOracleAddressBI \<open>executeStep contractsLastUpdate1' blockNum1 block1 (UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot0) = (Success, contractsLastUpdate1)\<close> \<open>reachable contractsLU contractsLastUpdate1' steps1\<close> reachableBridgeStateOracle)
-  qed fact+
-
-  interpret BDIFU: BridgeDeadInitFirstUpdate where 
-    stepsInit="steps1@stepsAllLU" and 
-    contractsLastUpdate'=contractsLastUpdate1' and stateRoot=stateRoot0 and contractsLastUpdate=contractsLastUpdate1 and blockLastUpdate=block1 and blockNumLastUpdate=blockNum1 and
-    contractsDead'=contractsDead' and contractsDead=contractsDead and stepDeath=stepDeath' and
-    contractsBD=contracts0 and stepsBD=stepsBD' and stepsNoUpdate=stepsNoUpdate'
-  proof
-    show "BD.stepsAllBD \<noteq> [] \<and> last BD.stepsAllBD = UPDATE ?SO stateRootInit"
-      unfolding BD.stepsAllBD_def
-      by (simp add: InitFirstUpdate_LU.firstUpdate)
-    show "stateRootInit \<noteq> 0"
-      by (simp add: stateRootInitNonZero)
-  qed
-
-  have "BD.stepsAllBD = steps0 @ stepsAllLU"
-    using *(1) \<open>steps0 = steps2 @ [UPDATE ?SO stateRoot0] @ steps1\<close>
-    by (simp add: BD.UPDATE_step_def BD.stepsAllBD_def)
-  moreover
-  have "transferredAmountFrom bridgeAddress token caller (steps1 @ stepsAllLU) = 
-        transferredAmountFrom bridgeAddress token caller stepsAllLU"
-    using \<open>steps0 = steps2 @ [UPDATE ?SO stateRoot0] @ steps1\<close> steps0 noIsStepCallerTransferredAmountFrom
-    unfolding reachableOtherCaller_def
-    by auto
-  moreover
-  have "transferredAmountTo bridgeAddress token caller (steps1 @ stepsAllLU) \<ge> 
-        transferredAmountTo bridgeAddress token caller stepsAllLU"
-    by simp
-  ultimately 
-  show ?thesis
-    using BDIFU.paybackPossibleBridgeDead[OF assms(1-3)]
-    unfolding allTokensPaidBack_def allTokensPaidBackEq_def
-    by auto
-qed
-
-theorem paybackPossibleLemma3:
-  assumes "properToken contractsInit tokenDepositAddress bridgeAddress token"
-  assumes "totalTokenBalance contractsInit (mintedTokenB contractsInit bridgeAddress token) = 0"
-  assumes "caller \<noteq> tokenDepositAddress"
-  assumes "\<not> bridgeDead contractsLastUpdate' tokenDepositAddress"
-  assumes steps0: "reachableOtherCaller caller contractsLU contracts0 steps0"
-  assumes "\<nexists> stateRoot'. UPDATE (stateOracleAddressB contractsInit bridgeAddress) stateRoot' \<in> set steps0"
-  assumes "bridgeDead contracts0 tokenDepositAddress"
-  shows "\<exists> steps. executableSteps caller contracts0 steps \<and>
-               (\<forall> contracts' stepListsOther. 
-                   reachableInterleaved caller contracts0 contracts' steps stepListsOther \<longrightarrow>
-                     allTokensPaidBack tokenDepositAddress bridgeAddress token caller
-                       (interleaveSteps steps stepListsOther @ steps0 @ stepsAllLU) 
-                          stepsInit)"
-proof-
-  have initBalance: "accountBalance contractsInit (mintedTokenTD contractsInit tokenDepositAddress token) caller = 0"
-    by (metis assms(1) assms(2) finiteBalances_def mintedTokenITDB properTokenFiniteBalancesMinted totalBalanceZero)
-
-  obtain contractsDead' contractsDead stepsNoUpdate' stepDeath' stepsBD' where *:
-    "steps0 @ stepsAllLU = stepsBD' @ [stepDeath'] @ stepsNoUpdate' @ [UPDATE_step] @ stepsInit"
-    "reachable contractsLastUpdate contractsDead' stepsNoUpdate'"
-    "reachable contractsDead' contractsDead [stepDeath']"
-    "reachable contractsDead contracts0 stepsBD'"
-    "let stateOracleAddress = stateOracleAddressB contractsLastUpdate bridgeAddress
-      in \<nexists>stateRoot'. UPDATE stateOracleAddress stateRoot' \<in> set stepsNoUpdate'"
-    "\<not> bridgeDead contractsDead' tokenDepositAddress"
-    "reachable contractsDead' contractsDead [stepDeath']"
-    "bridgeDead contractsDead tokenDepositAddress"
-    sorry
-  interpret BD: BridgeDead where 
-    contractsDead'=contractsDead' and contractsDead=contractsDead and stepDeath=stepDeath' and
-    contractsBD=contracts0 and stepsBD=stepsBD' and stepsNoUpdate=stepsNoUpdate'
-  proof
-    show "stateRoot \<noteq> 0"
-        by (metis getLastStateBContractsUNonZero lastStateBLU reachableLastUpdate'LU reachableStateRootNonZero stateOracleAddressBLU)
-    qed fact+
-
-  interpret BDIFU: BridgeDeadInitFirstUpdate where 
-    contractsDead'=contractsDead' and contractsDead=contractsDead and stepDeath=stepDeath' and
-    contractsBD=contracts0 and stepsBD=stepsBD' and stepsNoUpdate=stepsNoUpdate'
-    by (smt (verit) BD.BridgeDead_axioms BD.Init_BD.Init_axioms BridgeDead.stepsAllBD_def BridgeDeadInitFirstUpdate.intro InitFirstUpdate_axioms InitFirstUpdate_axioms_def InitFirstUpdate_def Nil_is_append_conv last_appendR)
-
-  show ?thesis
-    using BDIFU.paybackPossibleBridgeDead[OF assms(1-3)] *(1)[symmetric]
-    unfolding BD.stepsAllBD_def stepsAllLU_def
-    unfolding allTokensPaidBack_def allTokensPaidBackEq_def
-    by (metis le_refl)
 qed
 
 end

@@ -144,6 +144,16 @@ primrec isCaller where
 | "isCaller caller (CANCEL_WD address' caller' ID' token' amount' proof') \<longleftrightarrow> caller' = caller"
 | "isCaller caller (WITHDRAW_WD address' caller' token' amount' proof') \<longleftrightarrow> caller' = caller"
 
+primrec isAddress where
+  "isAddress address (DEPOSIT address' caller' ID' token' amount') \<longleftrightarrow> address' = address"
+| "isAddress address (CLAIM address' caller' ID' token' amount' proof') \<longleftrightarrow> address' = address"
+| "isAddress address (BURN address' caller' ID' token' amount') \<longleftrightarrow> address' = address"
+| "isAddress address (RELEASE address' caller' ID' token' amount' proof') \<longleftrightarrow> address' = address"
+| "isAddress address (TRANSFER address' caller' receiver' token' amount') \<longleftrightarrow> address' = address"
+| "isAddress address (UPDATE address' stateRoot') \<longleftrightarrow> address' = address"
+| "isAddress address (CANCEL_WD address' caller' ID' token' amount' proof') \<longleftrightarrow> address' = address"
+| "isAddress address (WITHDRAW_WD address' caller' token' amount' proof') \<longleftrightarrow> address' = address"
+
 text \<open>A target state is reachable from the source state by only applying steps given by a given callers\<close>
 definition reachableCaller :: "address \<Rightarrow> Contracts \<Rightarrow> Contracts \<Rightarrow> Step list \<Rightarrow> bool" where
   "reachableCaller caller contracts contracts' stepsCaller \<longleftrightarrow>
